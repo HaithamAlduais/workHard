@@ -7,9 +7,12 @@ import { useI18n } from '../../lib/i18n';
 import { useWorkoutStore, getCompletedSetsForExercise } from '../../stores/workoutStore';
 import { useScheduleStore } from '../../stores/scheduleStore';
 import { useSkillStore } from '../../stores/skillStore';
+import { useCalibrationStore } from '../../stores/calibrationStore';
+import { usePrescriptionStore } from '../../stores/prescriptionStore';
 import { formatTime } from '../../lib/time';
 import { generateProgressionDecisions } from '../../lib/progression';
 import { recordSkillAttemptsFromWorkout } from '../../lib/skills';
+import { startWorkoutStateWithPrescriptions, applyDecisionsToPrescriptions } from '../../lib/prescriptions';
 import { currentExercise, currentBlock, getSkillNode, type SkillAttempt } from '@gravitypath/domain';
 
 export default function WorkoutScreen() {
@@ -50,8 +53,10 @@ export default function WorkoutScreen() {
   }, [activeWorkout]);
 
   useEffect(() => {
+    if (!id) return;
+    usePrescriptionStore.getState().initializePrescriptions('local', useCalibrationStore.getState());
     if (!activeWorkout || activeWorkout.programDayId !== id) {
-      startWorkout(id ?? 'day1');
+      startWorkout(id ?? 'day1', startWorkoutStateWithPrescriptions);
     }
   }, [id]);
 
@@ -119,11 +124,13 @@ export default function WorkoutScreen() {
   const skillNode = getSkillNode(ex.exerciseId);
   const showGrip = !isHold && (apparatus.includes('bar') || apparatus.includes('rings'));
 
+  const prescription = usePrescriptionStore.getState().getExercisePrescription(activeWorkout.programDayId, ex.exerciseId);
+
   const submitSet = () => {
-    const loadNum = load === '' ? (ex.targetLoadKg ?? 0) : Number(load);
-    const repsNum = reps === '' ? 0 : Number(reps);
+    const loadNum = load === '' ? (ex.targetLoadKg ?? prescription?.currentLoad ?? 0) : Number(load);
+    const repsNum = reps === '' ? (prescription?.exactNextTargets?.[completedSets] ?? ex.targetRepsMin ?? 0) : Number(reps);
     const rirNum = rir === '' ? 2 : Number(rir);
-    const holdNum = hold === '' ? 0 : Number(hold);
+    const holdNum = hold === '' ? ((prescription as any)?.targetRepsOrHoldSeconds ?? ex.targetHoldSeconds ?? 0) : Number(hold);
     const modifiers: Record<string, string> = {};
     if (bandResistance) modifiers.bandResistanceKg = bandResistance;
     if (boxHeight) modifiers.boxHeightCm = boxHeight;
@@ -419,6 +426,7 @@ export default function WorkoutScreen() {
               const completedSets = sets.filter((s) => s.workoutSessionId === activeWorkout.id && s.status === 'completed');
               const decisions = generateProgressionDecisions(activeWorkout, sets, getSkillAttempts);
               decisions.forEach(addProgressionDecision);
+              applyDecisionsToPrescriptions(decisions, activeWorkout.programDayId, activeWorkout.id);
               recordSkillAttemptsFromWorkout(completedSets, activeWorkout.id);
               finishWorkout();
               advanceAfterCompletion(activeWorkout.id, id ?? 'day1');

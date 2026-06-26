@@ -25,7 +25,8 @@ interface WorkoutState {
   syncStatus: 'idle' | 'syncing' | 'error';
   lastSyncAt?: string;
   // actions
-  startWorkout: (dayId: string) => void;
+  startWorkout: (dayId: string, builder?: (dayId: string) => ActiveWorkoutState) => void;
+  setActiveWorkout: (workout: ActiveWorkoutState | null) => void;
   resumeWorkout: () => void;
   completeSet: (set: LoggedSet) => NextSetResult;
   skipSet: () => void;
@@ -60,10 +61,12 @@ export const useWorkoutStore = create<WorkoutState>()(
       isOffline: false,
       syncStatus: 'idle',
 
-      startWorkout: (dayId) => {
-        const workout = startWorkoutState(dayId);
+      startWorkout: (dayId, builder) => {
+        const workout = builder ? builder(dayId) : startWorkoutState(dayId);
         set({ activeWorkout: workout });
       },
+
+      setActiveWorkout: (workout) => set({ activeWorkout: workout }),
 
       resumeWorkout: () => {
         // activeWorkout is already persisted; this is a no-op trigger for UI

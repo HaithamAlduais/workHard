@@ -1,10 +1,37 @@
 import { getSkillNode, getProgramDay } from '@gravitypath/domain';
 import type { ProgressionDecision } from '../stores/workoutStore';
+import type {
+  ExercisePrescriptionWithMeta,
+  SkillPrescriptionWithMeta
+} from '../stores/prescriptionStore';
 
 export interface CoachMessage {
   title: string;
   body: string;
   tone: 'neutral' | 'positive' | 'warning' | 'action';
+}
+
+export function buildCoachMessage(
+  prescription: ExercisePrescriptionWithMeta | SkillPrescriptionWithMeta,
+  decision?: ProgressionDecision
+): string {
+  if ('exercise_id' in prescription) {
+    const name = exerciseName(prescription.exercise_id);
+    const load = prescription.currentLoad;
+    const reps = `${prescription.targetRepRange.min}-${prescription.targetRepRange.max}`;
+    const decisionText = decision ? ` Last decision: ${decision.reason}` : '';
+    return `${name}: ${load} kg for ${reps} reps.${decisionText}`;
+  }
+
+  const name = nodeName(prescription.currentNode);
+  const target =
+    prescription.targetRepsOrHoldSeconds > 0
+      ? `${prescription.targetRepsOrHoldSeconds}${prescription.targetSets > 0 ? ' reps/hold' : 's'}`
+      : 'as prescribed';
+  const leverage = prescription.leverageLevel !== 'full' ? ` at ${prescription.leverageLevel} leverage` : '';
+  const assistance = prescription.assistance !== 'none' ? ` with ${prescription.assistance} assistance` : '';
+  const decisionText = decision ? ` Last decision: ${decision.reason}` : '';
+  return `${name}: ${target}${leverage}${assistance}.${decisionText}`;
 }
 
 function exerciseName(exerciseId: string): string {

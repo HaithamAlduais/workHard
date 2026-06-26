@@ -11,3 +11,5 @@ export * from './deload/engine.js';
 export * from './set-addition/engine.js';
 export * from './workout/state.js';
 export * from './programs/curriculum.js';
+export * from './prescriptions/types.js';
+export * from './prescriptions/engine.js';

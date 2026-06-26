@@ -34,6 +34,56 @@ export interface SyncProgressionDecision {
   decidedAt: string;
 }
 
+export interface SyncExercisePrescription {
+  userId: string;
+  exerciseId: string;
+  programDayId: string;
+  currentLoad: number;
+  nextLoad: number;
+  setCount: number;
+  targetRepRange: { min: number; max: number };
+  exactNextTargets: number[];
+  targetRIR: number;
+  restSeconds: number;
+  bodyRegion: string;
+  smallestPlateKg: number;
+  progressionState: string;
+  lastCompletedSessionId: string | null;
+  lastDecisionId: string | null;
+  activeDeload: boolean;
+  activeSetAddition: boolean;
+  overrideStatus: any;
+  createdAt: Date;
+  updatedAt: Date;
+  clientId: string;
+}
+
+export interface SyncSkillPrescription {
+  userId: string;
+  skillNodeId: string;
+  skillFamilyId: string;
+  currentNode: string;
+  nextCandidateNode: string | null;
+  targetSets: number;
+  targetRepsOrHoldSeconds: number;
+  assistance: string;
+  leverageLevel: string;
+  externalLoad: number;
+  loadPlacement: string;
+  apparatus: string;
+  grip: string;
+  modifiers: Record<string, string>;
+  qualityTarget: number;
+  requiredSuccessfulExposures: number;
+  progressionState: string;
+  lastCompletedExposure: string | null;
+  activeSafetyHold: boolean;
+  overrideStatus?: any;
+  createdAt: Date;
+  updatedAt: Date;
+  clientId: string;
+}
+
 export interface SyncSupabaseClient {
   from: (table: string) => {
     select: (columns: string) => {
@@ -51,6 +101,8 @@ export interface SyncResult {
   setLogs: { success: string[]; failed: string[] };
   skillAttempts: { success: string[]; failed: string[] };
   progressionDecisions: { success: string[]; failed: string[] };
+  exercisePrescriptions: { success: string[]; failed: string[] };
+  skillPrescriptions: { success: string[]; failed: string[] };
   errors: Array<{ table: string; clientId: string; error: any }>;
 }
 
@@ -61,6 +113,8 @@ export interface SyncPendingRecordsInput {
   completedWorkouts: ActiveWorkoutState[];
   skillAttempts: SyncSkillAttempt[];
   progressionDecisions: SyncProgressionDecision[];
+  pendingExercisePrescriptions?: SyncExercisePrescription[];
+  pendingSkillPrescriptions?: SyncSkillPrescription[];
 }
 
 function emptyResult(): SyncResult {
@@ -71,6 +125,8 @@ function emptyResult(): SyncResult {
     setLogs: { success: [], failed: [] },
     skillAttempts: { success: [], failed: [] },
     progressionDecisions: { success: [], failed: [] },
+    exercisePrescriptions: { success: [], failed: [] },
+    skillPrescriptions: { success: [], failed: [] },
     errors: []
   };
 }
@@ -131,10 +187,7 @@ function buildSessionExerciseRows(
   return rows;
 }
 
-function buildSkillAttemptRow(
-  attempt: SyncSkillAttempt,
-  sessionUuid: string
-): Record<string, any> {
+function buildSkillAttemptRow(attempt: SyncSkillAttempt, sessionUuid: string): Record<string, any> {
   return {
     user_id: attempt.userId,
     workout_session_id: sessionUuid,
@@ -180,8 +233,72 @@ function buildProgressionDecisionRow(
   };
 }
 
+function buildExercisePrescriptionRow(prescription: SyncExercisePrescription): Record<string, any> {
+  return {
+    user_id: prescription.userId,
+    exercise_id: prescription.exerciseId,
+    program_day_id: prescription.programDayId,
+    current_load: prescription.currentLoad,
+    next_load: prescription.nextLoad,
+    set_count: prescription.setCount,
+    target_reps_min: prescription.targetRepRange.min,
+    target_reps_max: prescription.targetRepRange.max,
+    exact_next_targets: prescription.exactNextTargets,
+    target_rir: prescription.targetRIR,
+    rest_seconds: prescription.restSeconds,
+    body_region: prescription.bodyRegion,
+    smallest_plate_kg: prescription.smallestPlateKg,
+    progression_state: prescription.progressionState,
+    last_completed_session_id: prescription.lastCompletedSessionId,
+    last_decision_id: prescription.lastDecisionId,
+    active_deload: prescription.activeDeload,
+    active_set_addition: prescription.activeSetAddition,
+    override_status: prescription.overrideStatus,
+    created_at: prescription.createdAt,
+    updated_at: prescription.updatedAt,
+    client_id: prescription.clientId
+  };
+}
+
+function buildSkillPrescriptionRow(prescription: SyncSkillPrescription): Record<string, any> {
+  return {
+    user_id: prescription.userId,
+    skill_node_id: prescription.skillNodeId,
+    skill_family_id: prescription.skillFamilyId,
+    current_node: prescription.currentNode,
+    next_candidate_node: prescription.nextCandidateNode,
+    target_sets: prescription.targetSets,
+    target_reps_or_hold_seconds: prescription.targetRepsOrHoldSeconds,
+    assistance: prescription.assistance,
+    leverage_level: prescription.leverageLevel,
+    external_load: prescription.externalLoad,
+    load_placement: prescription.loadPlacement,
+    apparatus: prescription.apparatus,
+    grip: prescription.grip,
+    modifiers: prescription.modifiers,
+    quality_target: prescription.qualityTarget,
+    required_successful_exposures: prescription.requiredSuccessfulExposures,
+    progression_state: prescription.progressionState,
+    last_completed_exposure: prescription.lastCompletedExposure,
+    active_safety_hold: prescription.activeSafetyHold,
+    override_status: prescription.overrideStatus ?? null,
+    created_at: prescription.createdAt,
+    updated_at: prescription.updatedAt,
+    client_id: prescription.clientId
+  };
+}
+
 export async function syncPendingRecords(input: SyncPendingRecordsInput): Promise<SyncResult> {
-  const { userId, supabaseClient, pendingSets, completedWorkouts, skillAttempts, progressionDecisions } = input;
+  const {
+    userId,
+    supabaseClient,
+    pendingSets,
+    completedWorkouts,
+    skillAttempts,
+    progressionDecisions,
+    pendingExercisePrescriptions = [],
+    pendingSkillPrescriptions = []
+  } = input;
   const result = emptyResult();
 
   const setsBySession = groupBySessionId(pendingSets);
@@ -322,9 +439,7 @@ export async function syncPendingRecords(input: SyncPendingRecordsInput): Promis
       continue;
     }
 
-    const { error: setError } = await supabaseClient
-      .from('set_logs')
-      .upsert(setRows, { onConflict: 'client_id' });
+    const { error: setError } = await supabaseClient.from('set_logs').upsert(setRows, { onConflict: 'client_id' });
 
     if (setError) {
       result.errors.push({ table: 'set_logs', clientId: sessionClientId, error: setError });
@@ -370,6 +485,34 @@ export async function syncPendingRecords(input: SyncPendingRecordsInput): Promis
     }
 
     result.sessions.success.push(sessionClientId);
+  }
+
+  // Upsert pending exercise prescriptions independently of session sync.
+  if (pendingExercisePrescriptions.length > 0) {
+    const rows = pendingExercisePrescriptions.map(buildExercisePrescriptionRow);
+    const { error } = await supabaseClient
+      .from('exercise_prescriptions')
+      .upsert(rows, { onConflict: 'client_id' });
+    const clientIds = rows.map((r) => r.client_id);
+    if (error) {
+      result.errors.push({ table: 'exercise_prescriptions', clientId: clientIds.join(', '), error });
+      result.exercisePrescriptions.failed.push(...clientIds);
+    } else {
+      result.exercisePrescriptions.success.push(...clientIds);
+    }
+  }
+
+  // Upsert pending skill prescriptions independently of session sync.
+  if (pendingSkillPrescriptions.length > 0) {
+    const rows = pendingSkillPrescriptions.map(buildSkillPrescriptionRow);
+    const { error } = await supabaseClient.from('skill_prescriptions').upsert(rows, { onConflict: 'client_id' });
+    const clientIds = rows.map((r) => r.client_id);
+    if (error) {
+      result.errors.push({ table: 'skill_prescriptions', clientId: clientIds.join(', '), error });
+      result.skillPrescriptions.failed.push(...clientIds);
+    } else {
+      result.skillPrescriptions.success.push(...clientIds);
+    }
   }
 
   return result;

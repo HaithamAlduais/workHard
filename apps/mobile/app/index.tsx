@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -6,7 +7,10 @@ import { useI18n } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
 import { useWorkoutStore } from '../stores/workoutStore';
 import { useScheduleStore } from '../stores/scheduleStore';
-import { getProgramDay } from '@gravitypath/domain';
+import { useCalibrationStore } from '../stores/calibrationStore';
+import { usePrescriptionStore } from '../stores/prescriptionStore';
+import { getProgramDay, getSkillNode } from '@gravitypath/domain';
+import { buildCoachMessage } from '../lib/coach';
 import { APP_NAME } from '../lib/config';
 
 export default function Dashboard() {
@@ -16,6 +20,21 @@ export default function Dashboard() {
   const { user, signOut } = useAuth();
   const { activeWorkout, isOffline, pendingSets, progressionDecisions } = useWorkoutStore();
   const { getNextDayId, nextScheduledDate, trainingDays } = useScheduleStore();
+  const calibration = useCalibrationStore();
+  const {
+    initialized,
+    exercisePrescriptions,
+    skillPrescriptions,
+    pendingExercisePrescriptions,
+    pendingSkillPrescriptions,
+    initializePrescriptions
+  } = usePrescriptionStore();
+
+  useEffect(() => {
+    if (!initialized) {
+      initializePrescriptions('local', calibration);
+    }
+  }, [initialized, initializePrescriptions, calibration]);
 
   const nextDayId = activeWorkout ? activeWorkout.programDayId : getNextDayId();
   const nextDay = getProgramDay(nextDayId);
@@ -24,6 +43,17 @@ export default function Dashboard() {
   const isToday = new Date().toDateString() === nextDate.toDateString();
 
   const latestDecision = progressionDecisions[progressionDecisions.length - 1];
+
+  const pendingPrescriptionCount =
+    Object.keys(pendingExercisePrescriptions).length +
+    Object.keys(pendingSkillPrescriptions).length;
+
+  const hasActiveDeload = Object.values(exercisePrescriptions).some((p) => p.activeDeload);
+  const hasSafetyHold = Object.values(skillPrescriptions).some((p) => p.activeSafetyHold);
+
+  const primaryExercises = nextDay?.exercises.filter(
+    (ex) => ex.orderClass === 'GYM_STRENGTH' || ex.orderClass === 'STRENGTH_SKILL' || ex.role === 'skill'
+  ) ?? [];
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
@@ -42,6 +72,11 @@ export default function Dashboard() {
                 <Text style={styles.badgeText}>{t('syncPending')} ({pendingSets.length})</Text>
               </View>
             )}
+            {pendingPrescriptionCount > 0 && (
+              <View style={[styles.badge, { backgroundColor: c.warning }]}>
+                <Text style={styles.badgeText}>Prescriptions Pending ({pendingPrescriptionCount})</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -53,6 +88,24 @@ export default function Dashboard() {
           <Text style={[styles.cardMeta, { color: c.textMuted }]}>
             {isToday ? t('today') : nextDate.toLocaleDateString()} · ~{nextDay?.targetDurationMinutes ?? 58} {t('minutes')}
           </Text>
+
+          {primaryExercises.length > 0 && (
+            <View style={styles.prescriptionList}>
+              {primaryExercises.map((ex) => {
+                const skillNode = getSkillNode(ex.exerciseId);
+                const prescription = skillNode
+                  ? skillPrescriptions[ex.exerciseId]
+                  : exercisePrescriptions[`${nextDayId}|${ex.exerciseId}`];
+                const message = prescription ? buildCoachMessage(prescription as any) : ex.name;
+                return (
+                  <Text key={ex.exerciseId} style={[styles.prescriptionItem, { color: c.textMuted }]}>
+                    • {message}
+                  </Text>
+                );
+              })}
+            </View>
+          )}
+
           <Pressable
             style={[styles.button, { backgroundColor: c.primary }]}
             onPress={() => router.push(`/workout/${nextDayId}`)}
@@ -65,6 +118,12 @@ export default function Dashboard() {
           <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
             <Text style={[styles.cardTitle, { color: c.text }]}>{t('coach')}</Text>
             <Text style={[styles.cardBody, { color: c.textMuted }]}>{latestDecision.reason}</Text>
+            {(hasActiveDeload || hasSafetyHold) && (
+              <Text style={[styles.warningText, { color: c.danger }]}>
+                ⚠ {hasActiveDeload ? 'Active deload in effect.' : ''}{' '}
+                {hasSafetyHold ? 'Safety hold active on a skill.' : ''}
+              </Text>
+            )}
           </View>
         )}
 
@@ -73,6 +132,7 @@ export default function Dashboard() {
           <MenuButton label={t('journey')} onPress={() => router.push('/journey')} c={c} />
           <MenuButton label={t('analytics')} onPress={() => router.push('/analytics')} c={c} />
           <MenuButton label={t('coach')} onPress={() => router.push('/coach')} c={c} />
+          <MenuButton label={t('weeklyReview')} onPress={() => router.push('/weekly-review')} c={c} />
           <MenuButton label={t('settings')} onPress={() => router.push('/settings')} c={c} />
           <MenuButton label={t('onboarding')} onPress={() => router.push('/onboarding')} c={c} />
         </View>
@@ -106,13 +166,16 @@ const styles = StyleSheet.create({
   header: { marginBottom: 24 },
   title: { fontSize: 32, fontWeight: '800' },
   subtitle: { fontSize: 16, marginTop: 4 },
-  badges: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  badges: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   badgeText: { color: '#000', fontWeight: '700', fontSize: 12 },
   card: { borderWidth: 1, borderRadius: 16, padding: 20, marginBottom: 20 },
   cardTitle: { fontSize: 20, fontWeight: '700', marginBottom: 8 },
   cardBody: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
   cardMeta: { fontSize: 14, marginBottom: 16 },
+  prescriptionList: { marginBottom: 16 },
+  prescriptionItem: { fontSize: 14, marginBottom: 4 },
+  warningText: { fontSize: 14, marginTop: 8, fontWeight: '600' },
   button: { paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },

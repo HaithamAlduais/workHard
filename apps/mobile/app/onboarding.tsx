@@ -5,16 +5,41 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors } from '../lib/theme';
 import { useI18n } from '../lib/i18n';
 import { useScheduleStore } from '../stores/scheduleStore';
+import { useCalibrationStore } from '../stores/calibrationStore';
+import { usePrescriptionStore } from '../stores/prescriptionStore';
+import { SKILL_NODES, getSkillNode } from '@gravitypath/domain';
+
+const EXERCISE_CALIBRATION_IDS = [
+  'back-squat',
+  'bench-press',
+  'trap-bar-deadlift',
+  'overhead-press',
+  'front-squat',
+  'low-incline-press',
+  'romanian-deadlift',
+  'weighted-pull-up'
+];
 
 export default function Onboarding() {
   const router = useRouter();
   const c = useColors();
   const { t, isRTL, setLocale, locale } = useI18n();
-  const [name, setName] = useState('');
-  const [unit, setUnit] = useState<'metric' | 'imperial'>('metric');
-  const [days, setDays] = useState<number[]>([1, 3, 5]);
-  const [primarySkill, setPrimarySkill] = useState('handstand');
   const { setTrainingDays } = useScheduleStore();
+  const calibration = useCalibrationStore();
+
+  const [name, setName] = useState(calibration.profile.name);
+  const [unit, setUnit] = useState<'metric' | 'imperial'>(calibration.profile.unitSystem);
+  const [days, setDays] = useState<number[]>([1, 3, 5]);
+  const [primarySkill, setPrimarySkill] = useState(
+    calibration.profile.primarySkillFamilyId || 'handstand'
+  );
+  const [startingNodeId, setStartingNodeId] = useState<string | null>(
+    calibration.skillStartingNodes[primarySkill] || null
+  );
+
+  const skillNodes = SKILL_NODES.filter(
+    (n) => n.familyId === primarySkill && n.stage <= 4
+  );
 
   const toggleDay = (d: number) => {
     setDays((prev) => {
@@ -24,7 +49,37 @@ export default function Onboarding() {
     });
   };
 
+  const updatePrimarySkill = (skill: string) => {
+    setPrimarySkill(skill);
+    const nodes = SKILL_NODES.filter((n) => n.familyId === skill && n.stage <= 4);
+    const selected = nodes[0]?.id ?? null;
+    setStartingNodeId(selected);
+    if (selected) {
+      calibration.setSkillStartingNode(selected, selected);
+    }
+  };
+
+  const updateStartingNode = (nodeId: string) => {
+    setStartingNodeId(nodeId);
+    calibration.setSkillStartingNode(nodeId, nodeId);
+  };
+
+  const updateLoad = (exerciseId: string, value: string) => {
+    const num = parseFloat(value);
+    calibration.setExerciseLoad(exerciseId, Number.isNaN(num) ? 0 : num);
+  };
+
   const save = () => {
+    calibration.setProfile({
+      name,
+      unitSystem: unit,
+      primarySkillFamilyId: primarySkill
+    });
+    if (startingNodeId) {
+      calibration.setSkillStartingNode(startingNodeId, startingNodeId);
+    }
+    calibration.completeCalibration();
+    usePrescriptionStore.getState().initializePrescriptions('local', useCalibrationStore.getState());
     setTrainingDays(days);
     router.back();
   };
@@ -32,6 +87,8 @@ export default function Onboarding() {
   const dayNames = isRTL
     ? ['أحد', 'إثن', 'ثلاث', 'أرب', 'خميس', 'جمعة', 'سبت']
     : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const unitLabel = unit === 'metric' ? 'kg' : 'lb';
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
@@ -94,10 +151,47 @@ export default function Onboarding() {
             <Pressable
               key={skill}
               style={[styles.option, primarySkill === skill && { borderColor: c.primary }]}
-              onPress={() => setPrimarySkill(skill)}
+              onPress={() => updatePrimarySkill(skill)}
             >
               <Text style={{ color: c.text, textTransform: 'capitalize' }}>{skill.replace('-', ' ')}</Text>
             </Pressable>
+          ))}
+        </View>
+
+        {skillNodes.length > 0 && (
+          <View style={styles.field}>
+            <Text style={[styles.label, { color: c.text }]}>Starting Node</Text>
+            {skillNodes.map((node) => (
+              <Pressable
+                key={node.id}
+                style={[styles.option, startingNodeId === node.id && { borderColor: c.primary }]}
+                onPress={() => updateStartingNode(node.id)}
+              >
+                <Text style={{ color: c.text }}>
+                  {isRTL && node.nameAr ? node.nameAr : node.name} (stage {node.stage})
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+
+        <View style={styles.field}>
+          <Text style={[styles.label, { color: c.text }]}>Exercise Calibration</Text>
+          {EXERCISE_CALIBRATION_IDS.map((exerciseId) => (
+            <View key={exerciseId} style={[styles.loadRow, { borderColor: c.border }]}>
+              <Text style={[styles.loadLabel, { color: c.text }]}>
+                {exerciseId.split('-').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
+              </Text>
+              <TextInput
+                style={[styles.loadInput, { backgroundColor: c.surface, color: c.text, borderColor: c.border }]}
+                keyboardType="numeric"
+                defaultValue={String(calibration.getCalibrationLoad(exerciseId) ?? 0)}
+                onChangeText={(value) => updateLoad(exerciseId, value)}
+                placeholder="0"
+                placeholderTextColor={c.textMuted}
+              />
+              <Text style={[styles.loadUnit, { color: c.textMuted }]}>{unitLabel}</Text>
+            </View>
           ))}
         </View>
 
@@ -124,6 +218,16 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: '#64748b' },
   dayChip: { paddingHorizontal: 10, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: '#64748b', minWidth: 42, alignItems: 'center' },
   option: { padding: 14, borderWidth: 1, borderRadius: 12, marginBottom: 8, borderColor: '#64748b' },
+  loadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    paddingVertical: 10,
+    gap: 10
+  },
+  loadLabel: { flex: 1, fontSize: 14, textTransform: 'capitalize' },
+  loadInput: { width: 80, borderWidth: 1, borderRadius: 8, padding: 8, textAlign: 'center' },
+  loadUnit: { width: 30, fontSize: 14 },
   button: { paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginTop: 12 },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' }

@@ -3,8 +3,15 @@ import NetInfo from '@react-native-community/netinfo';
 import { supabase } from './supabase';
 import { useWorkoutStore } from '../stores/workoutStore';
 import { useSkillStore } from '../stores/skillStore';
+import { usePrescriptionStore } from '../stores/prescriptionStore';
 import { getCurrentUserId } from './auth';
-import { syncPendingRecords, type SyncSkillAttempt, type SyncSupabaseClient } from './syncEngine';
+import {
+  syncPendingRecords,
+  type SyncSkillAttempt,
+  type SyncSupabaseClient,
+  type SyncExercisePrescription,
+  type SyncSkillPrescription
+} from './syncEngine';
 
 export function useOfflineSync() {
   const pendingSets = useWorkoutStore((s) => s.pendingSets);
@@ -16,6 +23,15 @@ export function useOfflineSync() {
   const setSyncStatus = useWorkoutStore((s) => s.setSyncStatus);
   const skillAttempts = useSkillStore((s) => s.attempts);
 
+  const pendingExerciseCount = usePrescriptionStore(
+    (s) => Object.keys(s.pendingExercisePrescriptions).length
+  );
+  const pendingSkillCount = usePrescriptionStore(
+    (s) => Object.keys(s.pendingSkillPrescriptions).length
+  );
+  const markExercisePrescriptionsSynced = usePrescriptionStore((s) => s.markExercisePrescriptionsSynced);
+  const markSkillPrescriptionsSynced = usePrescriptionStore((s) => s.markSkillPrescriptionsSynced);
+
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
       setOffline(!state.isConnected);
@@ -24,7 +40,7 @@ export function useOfflineSync() {
   }, [setOffline]);
 
   useEffect(() => {
-    if (isOffline || pendingSets.length === 0) return;
+    if (isOffline || (pendingSets.length === 0 && pendingExerciseCount === 0 && pendingSkillCount === 0)) return;
 
     let cancelled = false;
 
@@ -62,16 +78,99 @@ export function useOfflineSync() {
           selfReported: !attempt.videoVerified && !attempt.coachVerified
         }));
 
+        const {
+          exercisePrescriptions,
+          skillPrescriptions,
+          pendingExercisePrescriptions,
+          pendingSkillPrescriptions
+        } = usePrescriptionStore.getState();
+
+        const mappedExercisePrescriptions: SyncExercisePrescription[] = Object.entries(
+          pendingExercisePrescriptions
+        )
+          .filter(([, pending]) => pending)
+          .map(([key]) => {
+            const p = exercisePrescriptions[key];
+            if (!p) return null;
+            return {
+              userId,
+              exerciseId: p.exercise_id,
+              programDayId: p.program_day_id,
+              currentLoad: p.currentLoad,
+              nextLoad: p.nextLoad,
+              setCount: p.setCount,
+              targetRepRange: p.targetRepRange,
+              exactNextTargets: p.exactNextTargets,
+              targetRIR: p.targetRIR,
+              restSeconds: p.restSeconds,
+              bodyRegion: p.bodyRegion,
+              smallestPlateKg: p.smallestPlateKg,
+              progressionState: p.progressionState,
+              lastCompletedSessionId: p.lastCompletedSessionId,
+              lastDecisionId: p.lastDecisionId,
+              activeDeload: p.activeDeload,
+              activeSetAddition: p.activeSetAddition,
+              overrideStatus: (p as any).overrideStatus,
+              createdAt: p.createdAt,
+              updatedAt: p.updatedAt,
+              clientId: p.client_id
+            } as SyncExercisePrescription;
+          })
+          .filter((p): p is SyncExercisePrescription => p !== null);
+
+        const mappedSkillPrescriptions: SyncSkillPrescription[] = Object.entries(pendingSkillPrescriptions)
+          .filter(([, pending]) => pending)
+          .map(([nodeId]) => {
+            const p = skillPrescriptions[nodeId];
+            if (!p) return null;
+            return {
+              userId,
+              skillNodeId: p.skill_node_id,
+              skillFamilyId: p.skill_family_id,
+              currentNode: p.currentNode,
+              nextCandidateNode: p.nextCandidateNode,
+              targetSets: p.targetSets,
+              targetRepsOrHoldSeconds: p.targetRepsOrHoldSeconds,
+              assistance: p.assistance,
+              leverageLevel: p.leverageLevel,
+              externalLoad: p.externalLoad,
+              loadPlacement: p.loadPlacement,
+              apparatus: p.apparatus,
+              grip: p.grip,
+              modifiers: p.modifiers,
+              qualityTarget: p.qualityTarget,
+              requiredSuccessfulExposures: p.requiredSuccessfulExposures,
+              progressionState: p.progressionState,
+              lastCompletedExposure: p.lastCompletedExposure,
+              activeSafetyHold: p.activeSafetyHold,
+              overrideStatus: (p as any).overrideStatus,
+              createdAt: p.createdAt,
+              updatedAt: p.updatedAt,
+              clientId: p.client_id
+            } as SyncSkillPrescription;
+          })
+          .filter((p): p is SyncSkillPrescription => p !== null);
+
         const result = await syncPendingRecords({
           userId,
           supabaseClient: supabase as unknown as SyncSupabaseClient,
           pendingSets,
           completedWorkouts,
           skillAttempts: mappedSkillAttempts,
-          progressionDecisions
+          progressionDecisions,
+          pendingExercisePrescriptions: mappedExercisePrescriptions,
+          pendingSkillPrescriptions: mappedSkillPrescriptions
         });
 
         if (cancelled) return;
+
+        if (result.exercisePrescriptions.success.length > 0) {
+          markExercisePrescriptionsSynced(result.exercisePrescriptions.success);
+        }
+
+        if (result.skillPrescriptions.success.length > 0) {
+          markSkillPrescriptionsSynced(result.skillPrescriptions.success);
+        }
 
         if (result.sessions.success.length > 0) {
           const syncedSetIds = pendingSets
@@ -97,7 +196,11 @@ export function useOfflineSync() {
     completedWorkouts.length,
     skillAttempts.length,
     progressionDecisions.length,
+    pendingExerciseCount,
+    pendingSkillCount,
     markSynced,
+    markExercisePrescriptionsSynced,
+    markSkillPrescriptionsSynced,
     setOffline,
     setSyncStatus
   ]);
