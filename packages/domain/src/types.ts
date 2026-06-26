@@ -208,6 +208,9 @@ export interface SkillAttempt {
   assistance: string;
   leverageLevel: string;
   loadPlacement: string;
+  apparatus?: string;
+  grip?: string;
+  modifiers?: Record<string, string>;
   qualityScore: number;
   qualityDimensions: SkillQualityDimensions;
   painLevel: 0 | 1 | 2 | 3;
@@ -232,6 +235,21 @@ export interface SkillQualityDimensions {
   momentum: number;
   rom: number;
   control: number;
+}
+
+export interface SkillExposureAggregate {
+  workoutSessionId: string;
+  attemptedSets: number;
+  validSets: number;
+  requiredSets: number;
+  bestReps?: number;
+  medianReps?: number;
+  bestHoldSeconds?: number;
+  medianHoldSeconds?: number;
+  totalValidHoldSeconds?: number;
+  minimumQuality: number;
+  averageQuality: number;
+  painReported: boolean;
 }
 
 export type SkillDecision =

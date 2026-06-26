@@ -74,6 +74,19 @@ describe('Strength progression', () => {
     const decision = decideStrengthProgression(input);
     expect(decision.type).toBe('MAINTAIN_LOAD');
   });
+
+  it('does not add load when reps are at top but RIR is zero', () => {
+    const input = {
+      exerciseId: 'bench',
+      targetRange: { min: 3, max: 5 },
+      currentLoadKg: 80,
+      lastSets: [goodSet(5, { rir: 0 }), goodSet(5, { rir: 0 }), goodSet(5, { rir: 0 })],
+      bodyRegion: 'upper' as const,
+      smallestPlateKg: 1.25
+    };
+    const decision = decideStrengthProgression(input);
+    expect(decision.type).not.toBe('ADD_LOAD');
+  });
 });
 
 describe('Hypertrophy progression', () => {

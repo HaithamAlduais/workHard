@@ -17,7 +17,11 @@ export default function Onboarding() {
   const { setTrainingDays } = useScheduleStore();
 
   const toggleDay = (d: number) => {
-    setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((a, b) => a - b)));
+    setDays((prev) => {
+      if (prev.includes(d)) return prev.filter((x) => x !== d);
+      if (prev.length >= 3) return prev;
+      return [...prev, d].sort((a, b) => a - b);
+    });
   };
 
   const save = () => {
@@ -97,7 +101,11 @@ export default function Onboarding() {
           ))}
         </View>
 
-        <Pressable style={[styles.button, { backgroundColor: c.primary }]} onPress={save}>
+        <Pressable
+          style={[styles.button, { backgroundColor: c.primary }, days.length !== 3 && styles.buttonDisabled]}
+          onPress={save}
+          disabled={days.length !== 3}
+        >
           <Text style={styles.buttonText}>{t('save')}</Text>
         </Pressable>
       </ScrollView>
@@ -117,5 +125,6 @@ const styles = StyleSheet.create({
   dayChip: { paddingHorizontal: 10, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: '#64748b', minWidth: 42, alignItems: 'center' },
   option: { padding: 14, borderWidth: 1, borderRadius: 12, marginBottom: 8, borderColor: '#64748b' },
   button: { paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginTop: 12 },
+  buttonDisabled: { opacity: 0.5 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' }
 });

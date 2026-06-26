@@ -39,8 +39,14 @@ interface WorkoutState {
   resetStore: () => void;
 }
 
-function getCompletedSetsForExercise(state: WorkoutState, exerciseId: string): LoggedSet[] {
-  return state.sets.filter((s) => s.exerciseId === exerciseId && s.status !== 'skipped');
+export function getCompletedSetsForExercise(
+  state: WorkoutState,
+  exerciseId: string,
+  sessionId: string
+): LoggedSet[] {
+  return state.sets.filter(
+    (s) => s.exerciseId === exerciseId && s.workoutSessionId === sessionId && s.status === 'completed'
+  );
 }
 
 export const useWorkoutStore = create<WorkoutState>()(
@@ -68,7 +74,10 @@ export const useWorkoutStore = create<WorkoutState>()(
         if (!activeWorkout) {
           return { blockCompleted: false, nextBlockIndex: 0, nextExerciseIndex: 0, restSeconds: 0 };
         }
-        const result = advanceAfterSet(activeWorkout, loggedSet, (exerciseId) => getCompletedSetsForExercise(get(), exerciseId));
+        const sessionId = activeWorkout.id;
+        const result = advanceAfterSet(activeWorkout, loggedSet, (exerciseId) =>
+          getCompletedSetsForExercise(get(), exerciseId, sessionId)
+        );
 
         const updatedBlocks = activeWorkout.blocks.map((block, idx) => {
           if (idx !== result.nextBlockIndex) return block;
@@ -97,11 +106,13 @@ export const useWorkoutStore = create<WorkoutState>()(
         if (!activeWorkout) return;
         const ex = currentExercise(activeWorkout);
         if (!ex) return;
+        const sessionId = activeWorkout.id;
         const skipped: LoggedSet = {
           id: `set-${Date.now()}`,
           blockId: currentBlock(activeWorkout)?.id ?? '',
           exerciseId: ex.id,
-          setNumber: getCompletedSetsForExercise(get(), ex.id).length + 1,
+          workoutSessionId: sessionId,
+          setNumber: getCompletedSetsForExercise(get(), ex.id, sessionId).length + 1,
           loadKg: 0,
           reps: 0,
           rir: 0,
@@ -122,11 +133,13 @@ export const useWorkoutStore = create<WorkoutState>()(
         if (!activeWorkout) return;
         const ex = currentExercise(activeWorkout);
         if (!ex) return;
+        const sessionId = activeWorkout.id;
         const stopped: LoggedSet = {
           id: `set-${Date.now()}`,
           blockId: currentBlock(activeWorkout)?.id ?? '',
           exerciseId: ex.id,
-          setNumber: getCompletedSetsForExercise(get(), ex.id).length + 1,
+          workoutSessionId: sessionId,
+          setNumber: getCompletedSetsForExercise(get(), ex.id, sessionId).length + 1,
           loadKg: 0,
           reps: 0,
           rir: 0,
@@ -162,7 +175,7 @@ export const useWorkoutStore = create<WorkoutState>()(
 
       finishWorkout: () => {
         const { activeWorkout } = get();
-        if (!activeWorkout) return;
+        if (!activeWorkout || activeWorkout.status === 'completed') return;
         const finished: ActiveWorkoutState = {
           ...activeWorkout,
           status: 'completed',

@@ -102,6 +102,7 @@ export function startWorkoutState(dayId: string, overrides?: Partial<ActiveWorko
     nameAr: e.nameAr,
     orderClass: e.orderClass,
     pairId: e.pairId,
+    pairType: e.pairType,
     role: e.role,
     targetSets: e.targetSets,
     targetRepsMin: e.targetRepsMin,

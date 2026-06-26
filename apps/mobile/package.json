@@ -10,6 +10,7 @@
     "build:web": "expo export --platform web",
     "e2e:web": "playwright test",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "lint": "eslint . --ext .ts,.tsx"
   },
   "dependencies": {
@@ -45,7 +46,8 @@
     "@playwright/test": "^1.61.1",
     "@types/react": "~19.2.0",
     "http-server": "^14.1.1",
-    "typescript": "~5.4.0"
+    "typescript": "~5.4.0",
+    "vitest": "^1.6.0"
   },
   "private": true
 }

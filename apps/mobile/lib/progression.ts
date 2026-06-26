@@ -93,9 +93,12 @@ function setToSkillAttempt(set: LoggedSet, sessionId: string, node: SkillNode): 
     holdSeconds: isStatic ? set.holdSeconds : undefined,
     validHoldSeconds: isStatic ? set.holdSeconds : undefined,
     externalLoadKg: set.loadKg,
-    assistance: 'none',
-    leverageLevel: 'full',
-    loadPlacement: 'none',
+    assistance: set.assistance ?? 'none',
+    leverageLevel: set.leverageLevel ?? 'full',
+    loadPlacement: set.loadPlacement ?? 'none',
+    apparatus: set.apparatus,
+    grip: set.grip,
+    modifiers: set.modifiers,
     qualityScore: score,
     qualityDimensions: dimensions,
     painLevel: set.painLevel,
@@ -109,14 +112,15 @@ function setToSkillAttempt(set: LoggedSet, sessionId: string, node: SkillNode): 
 export function evaluateExerciseProgression(
   exercise: WorkoutExercise,
   sets: LoggedSet[],
-  sessionId: string
+  sessionId: string,
+  getSkillAttempts: (exerciseId: string) => SkillAttempt[]
 ): ProgressionDecision {
-  const completed = sets.filter((s) => s.status === 'completed' && s.painLevel < 2);
-  const painReported = sets.some((s) => s.painLevel >= 2);
+  const sessionSets = sets.filter((s) => s.workoutSessionId === sessionId && s.status === 'completed');
+  const painReported = sessionSets.some((s) => s.painLevel >= 2);
 
   const skillNode = getSkillNode(exercise.exerciseId);
   if (skillNode) {
-    const attempts = completed.map((s) => setToSkillAttempt(s, sessionId, skillNode));
+    const attempts = getSkillAttempts(exercise.exerciseId);
     const decision = decideSkillProgression(skillNode, attempts);
     return {
       exerciseId: exercise.exerciseId,
@@ -127,7 +131,7 @@ export function evaluateExerciseProgression(
     };
   }
 
-  const lastSets = completed.map((s) => ({
+  const lastSets = sessionSets.map((s) => ({
     reps: exercise.targetHoldSeconds ? s.holdSeconds : s.reps,
     rir: s.rir,
     rom: s.rom,
@@ -143,7 +147,7 @@ export function evaluateExerciseProgression(
   if (exercise.orderClass === 'POWER') {
     const decision = decidePowerQuality({
       exerciseId: exercise.exerciseId,
-      sets: completed.map((s) => ({ quality: s.powerQuality ?? 'acceptable' }))
+      sets: sessionSets.map((s) => ({ quality: s.powerQuality ?? 'acceptable' }))
     });
     return {
       exerciseId: exercise.exerciseId,
@@ -154,8 +158,8 @@ export function evaluateExerciseProgression(
   }
 
   if (exercise.targetHoldSeconds) {
-    const anyPoorForm = completed.some((s) => s.form === 'poor');
-    const allAtTarget = completed.length >= 2 && completed.every((s) => s.holdSeconds >= targetRange.max);
+    const anyPoorForm = sessionSets.some((s) => s.form === 'poor');
+    const allAtTarget = sessionSets.length >= 2 && sessionSets.every((s) => s.holdSeconds >= targetRange.max);
     if (painReported || anyPoorForm) {
       return {
         exerciseId: exercise.exerciseId,
@@ -218,13 +222,17 @@ export function evaluateExerciseProgression(
   };
 }
 
-export function generateProgressionDecisions(workout: ActiveWorkoutState, allSets: LoggedSet[]): ProgressionDecision[] {
+export function generateProgressionDecisions(
+  workout: ActiveWorkoutState,
+  allSets: LoggedSet[],
+  getSkillAttempts: (exerciseId: string) => SkillAttempt[]
+): ProgressionDecision[] {
   const decisions: ProgressionDecision[] = [];
   for (const block of workout.blocks) {
     for (const ex of block.exercises) {
       const sets = allSets.filter((s) => s.exerciseId === ex.id);
       if (sets.length === 0) continue;
-      decisions.push(evaluateExerciseProgression(ex, sets, workout.id));
+      decisions.push(evaluateExerciseProgression(ex, sets, workout.id, getSkillAttempts));
     }
   }
   return decisions;

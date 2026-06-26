@@ -8,6 +8,8 @@ import {
 } from '@gravitypath/domain';
 import { useSkillStore, type UserSkillAttempt } from '../stores/skillStore';
 
+type UserSkillAttemptWithId = UserSkillAttempt & { id: string };
+
 function formScore(form: LoggedSet['form']): number {
   switch (form) {
     case 'good':
@@ -82,9 +84,12 @@ export function setToSkillAttempt(set: LoggedSet, sessionId: string, node: Skill
     holdSeconds: isStatic ? set.holdSeconds : undefined,
     validHoldSeconds: isStatic ? set.holdSeconds : undefined,
     externalLoadKg: set.loadKg,
-    assistance: 'none',
-    leverageLevel: 'full',
-    loadPlacement: 'none',
+    assistance: set.assistance ?? 'none',
+    leverageLevel: set.leverageLevel ?? 'full',
+    loadPlacement: set.loadPlacement ?? 'none',
+    apparatus: set.apparatus,
+    grip: set.grip,
+    modifiers: set.modifiers,
     qualityScore: score,
     qualityDimensions: dimensions,
     painLevel: set.painLevel,
@@ -95,14 +100,15 @@ export function setToSkillAttempt(set: LoggedSet, sessionId: string, node: Skill
   };
 }
 
-export function setsToUserSkillAttempts(sets: LoggedSet[], sessionId: string): UserSkillAttempt[] {
-  const attempts: UserSkillAttempt[] = [];
+export function setsToUserSkillAttempts(sets: LoggedSet[], sessionId: string): UserSkillAttemptWithId[] {
+  const attempts: UserSkillAttemptWithId[] = [];
   for (const set of sets) {
     const node = getSkillNode(set.exerciseId);
     if (!node) continue;
     const { dimensions, score } = setToSkillQuality(set);
     const isStatic = node.staticOrDynamic === 'static';
     attempts.push({
+      id: `${node.id}-${set.id}`,
       skillNodeId: node.id,
       workoutSessionId: sessionId,
       completedAt: set.completedAt ?? new Date().toISOString(),
@@ -110,9 +116,12 @@ export function setsToUserSkillAttempts(sets: LoggedSet[], sessionId: string): U
       holdSeconds: isStatic ? set.holdSeconds : undefined,
       validHoldSeconds: isStatic ? set.holdSeconds : undefined,
       externalLoadKg: set.loadKg,
-      assistance: 'none',
-      leverageLevel: 'full',
-      loadPlacement: 'none',
+      assistance: set.assistance ?? 'none',
+      leverageLevel: set.leverageLevel ?? 'full',
+      loadPlacement: set.loadPlacement ?? 'none',
+      apparatus: set.apparatus,
+      grip: set.grip,
+      modifiers: set.modifiers,
       qualityScore: score,
       qualityDimensions: dimensions,
       painLevel: set.painLevel,
@@ -125,8 +134,17 @@ export function setsToUserSkillAttempts(sets: LoggedSet[], sessionId: string): U
 }
 
 export function recordSkillAttemptsFromWorkout(sets: LoggedSet[], sessionId: string): void {
+  const skillStore = useSkillStore.getState();
+  const existingIds = new Set(
+    (skillStore.attempts as UserSkillAttemptWithId[])
+      .map((a) => a.id)
+      .filter((id): id is string => !!id)
+  );
   const attempts = setsToUserSkillAttempts(sets, sessionId);
   for (const attempt of attempts) {
-    useSkillStore.getState().recordAttempt(attempt);
+    if (!existingIds.has(attempt.id)) {
+      skillStore.recordAttempt(attempt);
+      existingIds.add(attempt.id);
+    }
   }
 }

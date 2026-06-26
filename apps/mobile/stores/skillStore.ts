@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SKILL_NODES, buildUnlockGraph, evaluateSkillUnlock, type SkillNode, type SkillUnlockState } from '@gravitypath/domain';
 
 export interface UserSkillAttempt {
+  id: string;
   skillNodeId: string;
   workoutSessionId?: string;
   completedAt: string;
@@ -14,6 +15,9 @@ export interface UserSkillAttempt {
   assistance: string;
   leverageLevel: string;
   loadPlacement: string;
+  apparatus?: string;
+  grip?: string;
+  modifiers?: Record<string, string>;
   qualityScore: number;
   qualityDimensions: {
     bodyLine: number;
@@ -71,7 +75,7 @@ export const useSkillStore = create<SkillState>()(
           domainAttempts.set(
             nodeId,
             list.map((a) => ({
-              id: `${nodeId}-${a.completedAt}`,
+              id: a.id,
               userId: 'local',
               skillNodeId: a.skillNodeId,
               workoutSessionId: a.workoutSessionId,
@@ -83,6 +87,9 @@ export const useSkillStore = create<SkillState>()(
               assistance: a.assistance,
               leverageLevel: a.leverageLevel,
               loadPlacement: a.loadPlacement,
+              apparatus: a.apparatus,
+              grip: a.grip,
+              modifiers: a.modifiers,
               qualityScore: a.qualityScore,
               qualityDimensions: a.qualityDimensions,
               painLevel: a.painLevel,

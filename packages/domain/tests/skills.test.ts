@@ -75,12 +75,22 @@ function makeAttempt(nodeId: string, values: Partial<SkillAttempt>, dims: Partia
   };
 }
 
+function makeSession(
+  nodeId: string,
+  count: number,
+  values: Partial<SkillAttempt>,
+  dims: Partial<SkillQualityDimensions> = {},
+  offsetDays = 0
+): SkillAttempt[] {
+  return Array.from({ length: count }, () => makeAttempt(nodeId, values, dims, offsetDays));
+}
+
 describe('Dynamic skill progression', () => {
   it('unlocks next node when rep target met across quality exposures', () => {
     const attempts = [
-      makeAttempt('strict-pull-up', { repetitions: 6 }, {}, 0),
-      makeAttempt('strict-pull-up', { repetitions: 6 }, {}, 2),
-      makeAttempt('strict-pull-up', { repetitions: 6 }, {}, 4)
+      ...makeSession('strict-pull-up', 3, { repetitions: 6 }, {}, 0),
+      ...makeSession('strict-pull-up', 3, { repetitions: 6 }, {}, 2),
+      ...makeSession('strict-pull-up', 3, { repetitions: 6 }, {}, 4)
     ];
     const decision = decideSkillProgression(baseNode, attempts);
     expect(decision.type).toBe('UNLOCK_NEXT_NODE');
@@ -89,9 +99,9 @@ describe('Dynamic skill progression', () => {
 
   it('adds reps when within range but not at top', () => {
     const attempts = [
-      makeAttempt('strict-pull-up', { repetitions: 4 }, {}, 0),
-      makeAttempt('strict-pull-up', { repetitions: 5 }, {}, 2),
-      makeAttempt('strict-pull-up', { repetitions: 4 }, {}, 4)
+      ...makeSession('strict-pull-up', 3, { repetitions: 4 }, {}, 0),
+      ...makeSession('strict-pull-up', 3, { repetitions: 5 }, {}, 2),
+      ...makeSession('strict-pull-up', 3, { repetitions: 4 }, {}, 4)
     ];
     const decision = decideSkillProgression(baseNode, attempts);
     expect(decision.type).toBe('ADD_REP');
@@ -117,14 +127,46 @@ describe('Dynamic skill progression', () => {
     const decision = decideSkillProgression(baseNode, attempts);
     expect(decision.type).not.toBe('ADD_LOAD');
   });
+
+  it('requires multiple distinct exposures to unlock', () => {
+    const attempts = makeSession('strict-pull-up', 9, { repetitions: 6 }, {}, 0);
+    const decision = decideSkillProgression(baseNode, attempts);
+    expect(decision.type).toBe('MAINTAIN_NODE');
+  });
+
+  it('does not unlock from a single high-quality attempt', () => {
+    const attempts = [makeAttempt('strict-pull-up', { repetitions: 6, qualityScore: 0.95 })];
+    const decision = decideSkillProgression(baseNode, attempts);
+    expect(decision.type).not.toBe('UNLOCK_NEXT_NODE');
+    expect(decision.type).toBe('MAINTAIN_NODE');
+  });
+
+  it('enforces required sets per exposure', () => {
+    const attempts = [
+      ...makeSession('strict-pull-up', 2, { repetitions: 6 }, {}, 0),
+      ...makeSession('strict-pull-up', 2, { repetitions: 6 }, {}, 2)
+    ];
+    const decision = decideSkillProgression(baseNode, attempts);
+    expect(decision.type).toBe('MAINTAIN_NODE');
+  });
+
+  it('blocks progression when pain is reported in an exposure', () => {
+    const attempts = [
+      ...makeSession('strict-pull-up', 3, { repetitions: 6 }, {}, 0),
+      ...makeSession('strict-pull-up', 3, { repetitions: 6, painLevel: 1 }, {}, 2),
+      ...makeSession('strict-pull-up', 3, { repetitions: 6 }, {}, 4)
+    ];
+    const decision = decideSkillProgression(baseNode, attempts);
+    expect(decision.type).toBe('MAINTAIN_NODE');
+  });
 });
 
 describe('Static skill progression', () => {
   it('advances leverage when hold target met', () => {
     const attempts = [
-      makeAttempt('tuck-front-lever', { holdSeconds: 10, validHoldSeconds: 10 }, {}, 0),
-      makeAttempt('tuck-front-lever', { holdSeconds: 10, validHoldSeconds: 10 }, {}, 2),
-      makeAttempt('tuck-front-lever', { holdSeconds: 10, validHoldSeconds: 10 }, {}, 4)
+      ...makeSession('tuck-front-lever', 4, { holdSeconds: 10, validHoldSeconds: 10 }, {}, 0),
+      ...makeSession('tuck-front-lever', 4, { holdSeconds: 10, validHoldSeconds: 10 }, {}, 2),
+      ...makeSession('tuck-front-lever', 4, { holdSeconds: 10, validHoldSeconds: 10 }, {}, 4)
     ];
     const decision = decideSkillProgression(staticNode, attempts);
     expect(decision.type).toBe('UNLOCK_NEXT_NODE');
@@ -132,9 +174,9 @@ describe('Static skill progression', () => {
 
   it('adds hold time when minimum met', () => {
     const attempts = [
-      makeAttempt('tuck-front-lever', { holdSeconds: 7, validHoldSeconds: 7 }, {}, 0),
-      makeAttempt('tuck-front-lever', { holdSeconds: 7, validHoldSeconds: 7 }, {}, 2),
-      makeAttempt('tuck-front-lever', { holdSeconds: 7, validHoldSeconds: 7 }, {}, 4)
+      ...makeSession('tuck-front-lever', 4, { holdSeconds: 7, validHoldSeconds: 7 }, {}, 0),
+      ...makeSession('tuck-front-lever', 4, { holdSeconds: 7, validHoldSeconds: 7 }, {}, 2),
+      ...makeSession('tuck-front-lever', 4, { holdSeconds: 7, validHoldSeconds: 7 }, {}, 4)
     ];
     const decision = decideSkillProgression(staticNode, attempts);
     expect(decision.type).toBe('ADD_HOLD_TIME');

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install root dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Install domain dependencies
+        run: cd packages/domain && npm ci --legacy-peer-deps
+
+      - name: Install mobile dependencies
+        run: cd apps/mobile && npm ci --legacy-peer-deps
+
+      - name: Build domain package
+        run: cd packages/domain && npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Domain unit tests
+        run: cd packages/domain && npm test
+
+      - name: Mobile unit tests
+        run: cd apps/mobile && npm test
+
+      - name: Build web
+        run: npm run build:web
+
+      - name: Install Playwright browsers
+        run: cd apps/mobile && npx playwright install --with-deps chromium
+
+      - name: Run Playwright E2E tests
+        run: npm run test:e2e

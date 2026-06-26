@@ -8,7 +8,9 @@
   "scripts": {
     "dev:mobile": "cd apps/mobile && npm start",
     "build:web": "cd apps/mobile && npm run build:web",
-    "test": "cd packages/domain && npm test",
+    "test": "cd packages/domain && npm test && cd ../../apps/mobile && npm test",
+    "test:domain": "cd packages/domain && npm test",
+    "test:mobile": "cd apps/mobile && npm test",
     "test:e2e": "cd apps/mobile && npm run e2e:web",
     "typecheck": "cd packages/domain && npm run typecheck && cd ../../apps/mobile && npm run typecheck",
     "db:start": "supabase start",

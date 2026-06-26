@@ -16,6 +16,13 @@ export interface LoggedSet {
   form: 'good' | 'acceptable' | 'poor';
   painLevel: 0 | 1 | 2 | 3;
   powerQuality?: 'fast' | 'acceptable' | 'slower';
+  qualityDrop?: boolean;
+  assistance?: string;
+  leverageLevel?: string;
+  loadPlacement?: string;
+  apparatus?: string;
+  grip?: string;
+  modifiers?: Record<string, string>;
   restSeconds: number;
   completedAt?: string;
   pendingSync: boolean;
@@ -29,6 +36,7 @@ export interface WorkoutExercise {
   nameAr: string;
   orderClass: SessionOrderClass;
   pairId?: string;
+  pairType?: PairType;
   role: string;
   targetSets: number;
   targetRepsMin?: number;
@@ -73,13 +81,16 @@ export function buildBlocks(exercises: WorkoutExercise[]): WorkoutBlock[] {
   let orderIndex = 0;
   for (const [pairId, exs] of byPair) {
     const isSolo = pairId?.startsWith('solo-');
-    const type: PairType = isSolo
-      ? exs[0].orderClass === 'TECHNIQUE_FIRST' || exs[0].orderClass === 'STRENGTH_SKILL'
+    let type: PairType;
+    if (isSolo) {
+      type = exs[0].orderClass === 'TECHNIQUE_FIRST' || exs[0].orderClass === 'STRENGTH_SKILL'
         ? 'SKILL_CLUSTER'
-        : 'STRAIGHT'
-      : exs.length > 1
-        ? 'ALT'
         : 'STRAIGHT';
+    } else if (exs.length > 1) {
+      type = exs[0].pairType ?? 'ALT';
+    } else {
+      type = 'STRAIGHT';
+    }
     blocks.push({
       id: isSolo ? pairId!.replace('solo-', '') : pairId ?? `block-${orderIndex}`,
       type,
@@ -121,12 +132,18 @@ export function advanceAfterSet(
     return { blockCompleted: true, nextBlockIndex: state.currentBlockIndex, nextExerciseIndex: 0, restSeconds: 0 };
   }
 
-  const currentEx = block.exercises[block.currentExerciseIndex];
-  const setsForCurrent = [...getCompletedSets(currentEx.id), set];
-  const currentExDone = setsForCurrent.length >= currentEx.targetSets;
+  const currentIdx = block.currentExerciseIndex;
+  const currentEx = block.exercises[currentIdx];
+
+  // Session-scoped completed counts. Only completed sets count toward targets.
+  const setCounts = set.status === 'completed' ? 1 : 0;
+  const completedCount = (ex: WorkoutExercise) =>
+    getCompletedSets(ex.id).length + (ex.id === currentEx.id ? setCounts : 0);
+
+  const allDone = block.exercises.every((ex) => completedCount(ex) >= ex.targetSets);
 
   if (block.type === 'STRAIGHT' || block.type === 'SKILL_CLUSTER') {
-    if (currentExDone) {
+    if (block.type === 'SKILL_CLUSTER' && set.qualityDrop) {
       return {
         blockCompleted: true,
         nextBlockIndex: Math.min(state.currentBlockIndex + 1, state.blocks.length - 1),
@@ -134,70 +151,92 @@ export function advanceAfterSet(
         restSeconds: currentEx.restSeconds
       };
     }
+
+    const currentExDone = completedCount(currentEx) >= currentEx.targetSets;
+    if (currentExDone) {
+      const nextIdx = currentIdx + 1;
+      if (nextIdx < block.exercises.length) {
+        const nextEx = block.exercises[nextIdx];
+        return {
+          blockCompleted: false,
+          nextBlockIndex: state.currentBlockIndex,
+          nextExerciseIndex: nextIdx,
+          restSeconds: nextEx.restSeconds,
+          pairTransition: true
+        };
+      }
+      return {
+        blockCompleted: true,
+        nextBlockIndex: Math.min(state.currentBlockIndex + 1, state.blocks.length - 1),
+        nextExerciseIndex: 0,
+        restSeconds: currentEx.restSeconds
+      };
+    }
+
     return {
       blockCompleted: false,
       nextBlockIndex: state.currentBlockIndex,
-      nextExerciseIndex: block.currentExerciseIndex,
+      nextExerciseIndex: currentIdx,
       restSeconds: currentEx.restSeconds
     };
   }
 
+  if (allDone) {
+    return {
+      blockCompleted: true,
+      nextBlockIndex: Math.min(state.currentBlockIndex + 1, state.blocks.length - 1),
+      nextExerciseIndex: 0,
+      restSeconds: currentEx.restSeconds
+    };
+  }
+
+  const findNextRemaining = (startIdx: number): number => {
+    for (let offset = 1; offset <= block.exercises.length; offset++) {
+      const idx = (startIdx + offset) % block.exercises.length;
+      const ex = block.exercises[idx];
+      if (completedCount(ex) < ex.targetSets) return idx;
+    }
+    return -1;
+  };
+
+  const nextIdx = findNextRemaining(currentIdx);
+  if (nextIdx === -1) {
+    return {
+      blockCompleted: true,
+      nextBlockIndex: Math.min(state.currentBlockIndex + 1, state.blocks.length - 1),
+      nextExerciseIndex: 0,
+      restSeconds: currentEx.restSeconds
+    };
+  }
+
+  const nextEx = block.exercises[nextIdx];
+
   if (block.type === 'ALT') {
-    if (currentExDone) {
-      const nextExIndex = block.currentExerciseIndex + 1;
-      if (nextExIndex >= block.exercises.length) {
-        return {
-          blockCompleted: true,
-          nextBlockIndex: Math.min(state.currentBlockIndex + 1, state.blocks.length - 1),
-          nextExerciseIndex: 0,
-          restSeconds: currentEx.restSeconds
-        };
-      }
-      return {
-        blockCompleted: false,
-        nextBlockIndex: state.currentBlockIndex,
-        nextExerciseIndex: nextExIndex,
-        restSeconds: currentEx.restSeconds,
-        pairTransition: true
-      };
-    }
-    const nextExIndex = (block.currentExerciseIndex + 1) % block.exercises.length;
     return {
       blockCompleted: false,
       nextBlockIndex: state.currentBlockIndex,
-      nextExerciseIndex: nextExIndex,
-      restSeconds: currentEx.restSeconds,
-      pairTransition: true
+      nextExerciseIndex: nextIdx,
+      restSeconds: nextEx.restSeconds,
+      pairTransition: nextIdx !== currentIdx
     };
   }
 
-  // SS: perform all sets of first exercise, then all sets of second, short transition between exercises, rest after pair
-  if (block.type === 'SS') {
-    if (currentExDone) {
-      const nextExIndex = block.currentExerciseIndex + 1;
-      if (nextExIndex >= block.exercises.length) {
-        return {
-          blockCompleted: true,
-          nextBlockIndex: Math.min(state.currentBlockIndex + 1, state.blocks.length - 1),
-          nextExerciseIndex: 0,
-          restSeconds: currentEx.restSeconds
-        };
-      }
-      return {
-        blockCompleted: false,
-        nextBlockIndex: state.currentBlockIndex,
-        nextExerciseIndex: nextExIndex,
-        restSeconds: 15,
-        pairTransition: true
-      };
-    }
+  // SS
+  if (nextIdx === currentIdx) {
     return {
       blockCompleted: false,
       nextBlockIndex: state.currentBlockIndex,
-      nextExerciseIndex: block.currentExerciseIndex,
-      restSeconds: 15
+      nextExerciseIndex: nextIdx,
+      restSeconds: currentEx.restSeconds
     };
   }
 
-  return { blockCompleted: false, nextBlockIndex: state.currentBlockIndex, nextExerciseIndex: block.currentExerciseIndex, restSeconds: currentEx.restSeconds };
+  const fullRound = currentIdx === block.exercises.length - 1;
+  return {
+    blockCompleted: false,
+    nextBlockIndex: state.currentBlockIndex,
+    nextExerciseIndex: nextIdx,
+    restSeconds: fullRound ? nextEx.restSeconds : 15,
+    pairTransition: true
+  };
 }
