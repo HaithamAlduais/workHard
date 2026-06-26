@@ -1,0 +1,27 @@
+{
+  "name": "gravitypath",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GravityPath — Gym-to-Calisthenics Progression Coach",
+  "license": "MIT",
+  "author": "GravityPath Team",
+  "scripts": {
+    "dev:mobile": "cd apps/mobile && npm start",
+    "build:web": "cd apps/mobile && npm run build:web",
+    "test": "cd packages/domain && npm test",
+    "test:e2e": "cd apps/mobile && npm run e2e:web",
+    "typecheck": "cd packages/domain && npm run typecheck && cd ../../apps/mobile && npm run typecheck",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:reset": "supabase db reset",
+    "db:migrate": "supabase migration up",
+    "db:seed": "supabase seed run"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

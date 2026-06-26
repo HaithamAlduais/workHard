@@ -1,0 +1,8 @@
+appId: com.gravitypath.app
+---
+- launchApp
+- assertVisible: "GravityPath"
+- tapOn: "Skill Tree"
+- assertVisible: "Pull-up"
+- tapOn: "Back"
+- assertVisible: "Next Workout"
