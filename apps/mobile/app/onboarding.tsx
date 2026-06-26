@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { View, Text, TextInput, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,7 +7,14 @@ import { useI18n } from '../lib/i18n';
 import { useScheduleStore } from '../stores/scheduleStore';
 import { useCalibrationStore } from '../stores/calibrationStore';
 import { usePrescriptionStore } from '../stores/prescriptionStore';
-import { SKILL_NODES, getSkillNode } from '@gravitypath/domain';
+import { useSkillPriorityStore } from '../stores/skillPriorityStore';
+import {
+  SKILL_FAMILIES,
+  SKILL_NODES,
+  validateSkillPriority,
+  checkSkillPriorityConflicts,
+  type SkillPriority
+} from '@gravitypath/domain';
 
 const EXERCISE_CALIBRATION_IDS = [
   'back-squat',
@@ -20,25 +27,35 @@ const EXERCISE_CALIBRATION_IDS = [
   'weighted-pull-up'
 ];
 
+const GOAL_TEMPLATES: { id: SkillPriority['goalTemplate']; label: string }[] = [
+  { id: 'practical_home', label: 'Practical Home Independence' },
+  { id: 'advanced_calisthenics', label: 'Advanced Calisthenics' },
+  { id: 'elite_mastery', label: 'Elite Mastery' }
+];
+
 export default function Onboarding() {
   const router = useRouter();
   const c = useColors();
   const { t, isRTL, setLocale, locale } = useI18n();
   const { setTrainingDays } = useScheduleStore();
   const calibration = useCalibrationStore();
+  const skillPriority = useSkillPriorityStore();
 
   const [name, setName] = useState(calibration.profile.name);
   const [unit, setUnit] = useState<'metric' | 'imperial'>(calibration.profile.unitSystem);
   const [days, setDays] = useState<number[]>([1, 3, 5]);
-  const [primarySkill, setPrimarySkill] = useState(
-    calibration.profile.primarySkillFamilyId || 'handstand'
-  );
   const [startingNodeId, setStartingNodeId] = useState<string | null>(
-    calibration.skillStartingNodes[primarySkill] || null
+    calibration.skillStartingNodes[skillPriority.primarySkillFamilyId] || null
   );
 
   const skillNodes = SKILL_NODES.filter(
-    (n) => n.familyId === primarySkill && n.stage <= 4
+    (n) => n.familyId === skillPriority.primarySkillFamilyId && n.stage <= 4
+  );
+
+  const validation = useMemo(() => validateSkillPriority(skillPriority), [skillPriority]);
+  const warnings = useMemo(
+    () => checkSkillPriorityConflicts(skillPriority, usePrescriptionStore.getState().skillPrescriptions),
+    [skillPriority]
   );
 
   const toggleDay = (d: number) => {
@@ -49,10 +66,12 @@ export default function Onboarding() {
     });
   };
 
-  const updatePrimarySkill = (skill: string) => {
-    setPrimarySkill(skill);
-    const nodes = SKILL_NODES.filter((n) => n.familyId === skill && n.stage <= 4);
-    const selected = nodes[0]?.id ?? null;
+  const setPrimaryFamily = (familyId: string) => {
+    skillPriority.setPrimary(familyId);
+    const nodes = SKILL_NODES.filter((n) => n.familyId === familyId && n.stage <= 4).sort(
+      (a, b) => a.stage - b.stage
+    );
+    const selected = nodes[nodes.length - 1]?.id ?? null;
     setStartingNodeId(selected);
     if (selected) {
       calibration.setSkillStartingNode(selected, selected);
@@ -70,16 +89,19 @@ export default function Onboarding() {
   };
 
   const save = () => {
+    if (!validation.valid || days.length !== 3) return;
     calibration.setProfile({
       name,
       unitSystem: unit,
-      primarySkillFamilyId: primarySkill
+      primarySkillFamilyId: skillPriority.primarySkillFamilyId
     });
     if (startingNodeId) {
       calibration.setSkillStartingNode(startingNodeId, startingNodeId);
     }
     calibration.completeCalibration();
-    usePrescriptionStore.getState().initializePrescriptions('local', useCalibrationStore.getState());
+    const freshCalibration = useCalibrationStore.getState();
+    usePrescriptionStore.getState().initializePrescriptions('local', freshCalibration);
+    usePrescriptionStore.getState().recomputeSkillStatuses();
     setTrainingDays(days);
     router.back();
   };
@@ -89,6 +111,26 @@ export default function Onboarding() {
     : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   const unitLabel = unit === 'metric' ? 'kg' : 'lb';
+
+  const renderPriorityButton = (
+    familyId: string,
+    label: string,
+    active: boolean,
+    onPress: () => void
+  ) => (
+    <Pressable
+      key={label}
+      testID={`priority-${familyId}-${label.toLowerCase()}`}
+      style={[
+        styles.priorityChip,
+        active && { backgroundColor: c.primary },
+        { borderColor: c.border }
+      ]}
+      onPress={onPress}
+    >
+      <Text style={{ color: active ? '#fff' : c.text, fontSize: 12 }}>{label}</Text>
+    </Pressable>
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
@@ -146,16 +188,41 @@ export default function Onboarding() {
         </View>
 
         <View style={styles.field}>
+          <Text style={[styles.label, { color: c.text }]}>Goal Template</Text>
+          <View style={styles.row}>
+            {GOAL_TEMPLATES.map((template) => (
+              <Pressable
+                key={template.id}
+                style={[styles.chip, skillPriority.goalTemplate === template.id && { backgroundColor: c.primary }]}
+                onPress={() => skillPriority.setGoalTemplate(template.id)}
+              >
+                <Text style={{ color: skillPriority.goalTemplate === template.id ? '#fff' : c.text }}>{template.label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.field}>
           <Text style={[styles.label, { color: c.text }]}>{t('primarySkill')}</Text>
-          {['handstand', 'muscle-up', 'front-lever', 'planche', 'pistol'].map((skill) => (
-            <Pressable
-              key={skill}
-              style={[styles.option, primarySkill === skill && { borderColor: c.primary }]}
-              onPress={() => updatePrimarySkill(skill)}
-            >
-              <Text style={{ color: c.text, textTransform: 'capitalize' }}>{skill.replace('-', ' ')}</Text>
-            </Pressable>
-          ))}
+          {SKILL_FAMILIES.filter((f) => f.id !== 'expert-rings').map((family) => {
+            const isPrimary = skillPriority.primarySkillFamilyId === family.id;
+            const isSecondary = skillPriority.secondarySkillFamilyIds.includes(family.id);
+            const isMaintenance = skillPriority.maintenanceSkillFamilyIds.includes(family.id);
+            const isInactive = skillPriority.inactiveSkillFamilyIds.includes(family.id);
+            return (
+              <View key={family.id} style={[styles.skillRow, { borderColor: c.border }]}>
+                <Text style={[styles.skillName, { color: c.text }]}>
+                  {isRTL && family.nameAr ? family.nameAr : family.name}
+                </Text>
+                <View style={styles.priorityRow}>
+                  {renderPriorityButton(family.id, 'Primary', isPrimary, () => setPrimaryFamily(family.id))}
+                  {renderPriorityButton(family.id, 'Secondary', isSecondary, () => skillPriority.toggleSecondary(family.id))}
+                  {renderPriorityButton(family.id, 'Maint.', isMaintenance, () => skillPriority.toggleMaintenance(family.id))}
+                  {renderPriorityButton(family.id, 'Off', isInactive, () => skillPriority.toggleInactive(family.id))}
+                </View>
+              </View>
+            );
+          })}
         </View>
 
         {skillNodes.length > 0 && (
@@ -171,6 +238,27 @@ export default function Onboarding() {
                   {isRTL && node.nameAr ? node.nameAr : node.name} (stage {node.stage})
                 </Text>
               </Pressable>
+            ))}
+          </View>
+        )}
+
+        {warnings.length > 0 && (
+          <View style={styles.field}>
+            <Text style={[styles.label, { color: c.warning }]}>Priority Warnings</Text>
+            {warnings.map((warning, idx) => (
+              <Text key={idx} style={[styles.warningText, { color: c.warning }]}>
+                ⚠ {warning.message}
+              </Text>
+            ))}
+          </View>
+        )}
+
+        {!validation.valid && (
+          <View style={styles.field}>
+            {validation.errors.map((error, idx) => (
+              <Text key={idx} style={[styles.warningText, { color: c.danger }]}>
+                • {error}
+              </Text>
             ))}
           </View>
         )}
@@ -196,9 +284,9 @@ export default function Onboarding() {
         </View>
 
         <Pressable
-          style={[styles.button, { backgroundColor: c.primary }, days.length !== 3 && styles.buttonDisabled]}
+          style={[styles.button, { backgroundColor: c.primary }, (!validation.valid || days.length !== 3) && styles.buttonDisabled]}
           onPress={save}
-          disabled={days.length !== 3}
+          disabled={!validation.valid || days.length !== 3}
         >
           <Text style={styles.buttonText}>{t('save')}</Text>
         </Pressable>
@@ -218,6 +306,20 @@ const styles = StyleSheet.create({
   chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: '#64748b' },
   dayChip: { paddingHorizontal: 10, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: '#64748b', minWidth: 42, alignItems: 'center' },
   option: { padding: 14, borderWidth: 1, borderRadius: 12, marginBottom: 8, borderColor: '#64748b' },
+  skillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    marginBottom: 8
+  },
+  skillName: { flex: 1, fontSize: 14, fontWeight: '600' },
+  priorityRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  priorityChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: '#64748b' },
+  warningText: { fontSize: 13, marginBottom: 4 },
   loadRow: {
     flexDirection: 'row',
     alignItems: 'center',

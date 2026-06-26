@@ -1,14 +1,26 @@
-import { decideDeload, decideSetAddition } from '@gravitypath/domain';
+import { decideDeload, decideSetAddition, getSkillNode } from '@gravitypath/domain';
 import type {
   DeloadDecision,
   SetAdditionDecision,
-  ActiveWorkoutState
+  ActiveWorkoutState,
+  SkillPriority,
+  SkillUnlockState,
+  SkillPrescription,
+  SkillAttempt
 } from '@gravitypath/domain';
 import type { ProgressionDecision } from '../stores/workoutStore';
 import type {
   ExercisePrescriptionWithMeta,
   SkillPrescriptionWithMeta
 } from '../stores/prescriptionStore';
+
+export interface SkillReviewSummary {
+  familyId: string;
+  progressPercent: number;
+  exposuresLast7Days: number;
+  averageQualityLast7Days: number;
+  highestUnlockedNode: string;
+}
 
 export interface WeeklyReviewResult {
   deload: DeloadDecision & { reason: string };
@@ -20,6 +32,9 @@ export interface WeeklyReviewResult {
   regressingExercises: string[];
   adherencePercent: number;
   summary: string;
+  skillSummary: SkillReviewSummary[];
+  rotationRecommendation: 'continue' | 'rotate' | 'start_new_block';
+  rotationReason: string;
 }
 
 function isWithinDays(dateIso: string, days: number): boolean {
@@ -52,10 +67,6 @@ function countDecisionsForExercise(
 }
 
 function countFailedSkippedStoppedSets(workouts: ActiveWorkoutState[]): number {
-  // The workouts themselves don't carry sets; callers pass completedWorkouts from the store,
-  // but sets live in the store's `sets` array. Since this module intentionally only receives
-  // workouts and decisions, we approximate by counting workouts that ended with pain/stopped status.
-  // For richer reporting the dashboard can read `sets` directly.
   return 0;
 }
 
@@ -79,17 +90,87 @@ function broadFatigueHeuristic(
     if (w.status !== 'completed' || !w.completedAt || !w.startedAt) return false;
     const durationMinutes =
       (new Date(w.completedAt).getTime() - new Date(w.startedAt).getTime()) / 60000;
-    // Approximate "stopped >10 sets" by duration > 75 min
     return durationMinutes > 75;
   }).length;
   return longOrStoppedSessions >= 2 || regressingCount >= 2;
+}
+
+function buildSkillSummary(
+  priority: SkillPriority,
+  skillPrescriptions: Record<string, SkillPrescriptionWithMeta>,
+  unlockStates: Map<string, SkillUnlockState>,
+  skillAttempts: SkillAttempt[]
+): SkillReviewSummary[] {
+  const activeFamilies = [
+    priority.primarySkillFamilyId,
+    ...priority.secondarySkillFamilyIds
+  ];
+
+  const summaries: SkillReviewSummary[] = [];
+  for (const familyId of activeFamilies) {
+    const familyPrescriptions = Object.values(skillPrescriptions).filter(
+      (p) => p.skill_family_id === familyId
+    );
+    let highestStage = 0;
+    let highestUnlockedNode = '';
+    for (const prescription of familyPrescriptions) {
+      const node = getSkillNode(prescription.skill_node_id);
+      const state = unlockStates.get(prescription.skill_node_id);
+      if (state && (state.status === 'unlocked' || state.status === 'mastered') && node) {
+        highestStage = Math.max(highestStage, node.stage);
+        highestUnlockedNode = prescription.skill_node_id;
+      }
+    }
+
+    const recentAttempts = skillAttempts.filter(
+      (a) =>
+        familyPrescriptions.some((p) => p.skill_node_id === a.skillNodeId) &&
+        isWithinDays(typeof a.completedAt === 'string' ? a.completedAt : a.completedAt.toISOString(), 7)
+    );
+
+    const averageQuality =
+      recentAttempts.length > 0
+        ? recentAttempts.reduce((sum, a) => sum + a.qualityScore, 0) / recentAttempts.length
+        : 0;
+
+    summaries.push({
+      familyId,
+      progressPercent: Math.min(100, highestStage * 12),
+      exposuresLast7Days: recentAttempts.length,
+      averageQualityLast7Days: Math.round(averageQuality * 100) / 100,
+      highestUnlockedNode
+    });
+  }
+  return summaries;
+}
+
+function rotationRecommendation(
+  priority: SkillPriority,
+  skillSummary: SkillReviewSummary[]
+): { recommendation: 'continue' | 'rotate' | 'start_new_block'; reason: string } {
+  const primary = skillSummary.find((s) => s.familyId === priority.primarySkillFamilyId);
+  const blockEnded = priority.blockEnd ? new Date(priority.blockEnd).getTime() <= Date.now() : false;
+
+  if (blockEnded && primary && primary.progressPercent >= 80) {
+    return { recommendation: 'rotate', reason: 'Primary skill is near mastery and block has ended. Rotate primary focus.' };
+  }
+  if (blockEnded) {
+    return { recommendation: 'start_new_block', reason: 'Block has ended. Start a new block with the same or adjusted priorities.' };
+  }
+  if (primary && primary.progressPercent >= 95) {
+    return { recommendation: 'rotate', reason: 'Primary skill is mastered. Consider rotating focus.' };
+  }
+  return { recommendation: 'continue', reason: 'Continue current block and priorities.' };
 }
 
 export function runWeeklyReview(
   completedWorkouts: ActiveWorkoutState[],
   decisions: ProgressionDecision[],
   exercisePrescriptions: Record<string, ExercisePrescriptionWithMeta>,
-  skillPrescriptions: Record<string, SkillPrescriptionWithMeta>
+  skillPrescriptions: Record<string, SkillPrescriptionWithMeta>,
+  priority: SkillPriority,
+  unlockStates: Map<string, SkillUnlockState>,
+  skillAttempts: SkillAttempt[]
 ): WeeklyReviewResult {
   const sessionsLast7Days = countSessionsLastDays(completedWorkouts, 7);
 
@@ -105,7 +186,6 @@ export function runWeeklyReview(
   const skillQualityDecline = hasSkillQualityDecline(decisions);
   const broadFatigue = broadFatigueHeuristic(completedWorkouts, regressingExerciseIds.length);
 
-  // Adherence: completed sessions / expected sessions (3 per week).
   const scheduledPerWeek = 3;
   const adherencePercent = Math.min(
     100,
@@ -131,11 +211,10 @@ export function runWeeklyReview(
   for (const key of candidateKeys) {
     const prescription = exercisePrescriptions[key];
     const exerciseId = prescription.exercise_id;
-    const name =
-      prescription.exercise_id
-        .split('-')
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ') ?? exerciseId;
+    const name = prescription.exercise_id
+      .split('-')
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ') ?? exerciseId;
 
     const exposuresSinceProgress = countDecisionsForExercise(
       decisions,
@@ -165,15 +244,23 @@ export function runWeeklyReview(
     }
   }
 
+  const skillSummary = buildSkillSummary(priority, skillPrescriptions, unlockStates, skillAttempts);
+  const rotation = rotationRecommendation(priority, skillSummary);
+
   const summary = deload.deload
     ? `Deload recommended for ${deload.durationDays} days.`
-    : 'No deload needed this week.';
+    : rotation.recommendation === 'continue'
+      ? 'No deload needed this week. Continue the current block.'
+      : rotation.reason;
 
   return {
     deload: { ...deload, reason: deload.reason },
     setAdditions,
     regressingExercises: regressingExerciseIds,
     adherencePercent,
-    summary
+    summary,
+    skillSummary,
+    rotationRecommendation: rotation.recommendation,
+    rotationReason: rotation.reason
   };
 }

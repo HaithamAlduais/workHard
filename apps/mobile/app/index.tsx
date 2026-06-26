@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,9 +9,32 @@ import { useWorkoutStore } from '../stores/workoutStore';
 import { useScheduleStore } from '../stores/scheduleStore';
 import { useCalibrationStore } from '../stores/calibrationStore';
 import { usePrescriptionStore } from '../stores/prescriptionStore';
-import { getProgramDay, getSkillNode } from '@gravitypath/domain';
+import { useSkillPriorityStore } from '../stores/skillPriorityStore';
+import { useSkillStore } from '../stores/skillStore';
+import {
+  getHybridProgramDay,
+  updateSkillPrescriptionStatuses,
+  SKILL_FAMILIES,
+  checkSkillPriorityConflicts,
+  type SkillPriority
+} from '@gravitypath/domain';
 import { buildCoachMessage } from '../lib/coach';
 import { APP_NAME } from '../lib/config';
+
+function familyName(familyId: string, isRTL: boolean): string {
+  const family = SKILL_FAMILIES.find((f) => f.id === familyId);
+  if (!family) return familyId;
+  return isRTL && family.nameAr ? family.nameAr : family.name;
+}
+
+function blockWeekText(priority: SkillPriority): string {
+  if (!priority.blockStart || !priority.blockEnd) return 'No active block';
+  const start = new Date(priority.blockStart);
+  const now = new Date();
+  const days = Math.max(0, Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+  const week = Math.floor(days / 7) + 1;
+  return `Week ${week} of ${priority.blockLengthWeeks}`;
+}
 
 export default function Dashboard() {
   const router = useRouter();
@@ -27,8 +50,12 @@ export default function Dashboard() {
     skillPrescriptions,
     pendingExercisePrescriptions,
     pendingSkillPrescriptions,
-    initializePrescriptions
+    initializePrescriptions,
+    recomputeSkillStatuses
   } = usePrescriptionStore();
+  const priority = useSkillPriorityStore();
+  const skillAttempts = useSkillStore((s) => s.attempts);
+  const getUnlockStates = useSkillStore((s) => s.getUnlockStates);
 
   useEffect(() => {
     if (!initialized) {
@@ -36,8 +63,13 @@ export default function Dashboard() {
     }
   }, [initialized, initializePrescriptions, calibration]);
 
+  useEffect(() => {
+    if (initialized) {
+      recomputeSkillStatuses();
+    }
+  }, [initialized, recomputeSkillStatuses, priority.primarySkillFamilyId, priority.secondarySkillFamilyIds.join(','), skillAttempts.length]);
+
   const nextDayId = activeWorkout ? activeWorkout.programDayId : getNextDayId();
-  const nextDay = getProgramDay(nextDayId);
   const hasActive = activeWorkout && activeWorkout.status === 'active';
   const nextDate = new Date(nextScheduledDate);
   const isToday = new Date().toDateString() === nextDate.toDateString();
@@ -50,6 +82,33 @@ export default function Dashboard() {
 
   const hasActiveDeload = Object.values(exercisePrescriptions).some((p) => p.activeDeload);
   const hasSafetyHold = Object.values(skillPrescriptions).some((p) => p.activeSafetyHold);
+
+  const warnings = useMemo(
+    () => checkSkillPriorityConflicts(priority, skillPrescriptions),
+    [priority, skillPrescriptions]
+  );
+
+  const nextDayInfo = useMemo(() => {
+    if (!initialized) return null;
+    const unlockStates = getUnlockStates();
+    const skillPrescriptionsWithStatus = { ...skillPrescriptions };
+    const statuses = updateSkillPrescriptionStatuses(priority, skillPrescriptionsWithStatus, unlockStates);
+    for (const [nodeId, status] of Object.entries(statuses)) {
+      const existing = skillPrescriptionsWithStatus[nodeId];
+      if (existing) {
+        skillPrescriptionsWithStatus[nodeId] = { ...existing, status };
+      }
+    }
+    return getHybridProgramDay(nextDayId, {
+      priority,
+      skillPrescriptions: skillPrescriptionsWithStatus,
+      unlockStates,
+      startingNodes: calibration.skillStartingNodes,
+      availableMinutes: 60
+    });
+  }, [nextDayId, priority, skillPrescriptions, initialized, getUnlockStates]);
+
+  const nextDay = nextDayInfo?.day;
 
   const primaryExercises = nextDay?.exercises.filter(
     (ex) => ex.orderClass === 'GYM_STRENGTH' || ex.orderClass === 'STRENGTH_SKILL' || ex.role === 'skill'
@@ -89,13 +148,37 @@ export default function Dashboard() {
             {isToday ? t('today') : nextDate.toLocaleDateString()} · ~{nextDay?.targetDurationMinutes ?? 58} {t('minutes')}
           </Text>
 
+          {warnings.length > 0 && (
+            <View style={styles.warningBox}>
+              {warnings.map((warning, idx) => (
+                <Text key={idx} style={[styles.warningText, { color: c.warning }]}>
+                  ⚠ {warning.message}
+                </Text>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.priorityRowCompact}>
+            <View style={[styles.priorityBadge, { backgroundColor: c.primary }]}>
+              <Text style={styles.priorityBadgeText}>
+                Primary: {familyName(priority.primarySkillFamilyId, isRTL)}
+              </Text>
+            </View>
+            {priority.secondarySkillFamilyIds.map((familyId) => (
+              <View key={familyId} style={[styles.priorityBadge, { backgroundColor: c.surfaceHighlight }]}>
+                <Text style={[styles.priorityBadgeText, { color: c.text }]}>
+                  {familyName(familyId, isRTL)}
+                </Text>
+              </View>
+            ))}
+            <Text style={[styles.blockText, { color: c.textMuted }]}>{blockWeekText(priority)}</Text>
+          </View>
+
           {primaryExercises.length > 0 && (
             <View style={styles.prescriptionList}>
               {primaryExercises.map((ex) => {
-                const skillNode = getSkillNode(ex.exerciseId);
-                const prescription = skillNode
-                  ? skillPrescriptions[ex.exerciseId]
-                  : exercisePrescriptions[`${nextDayId}|${ex.exerciseId}`];
+                const key = `${nextDayId}|${ex.exerciseId}`;
+                const prescription = skillPrescriptions[ex.exerciseId] ?? exercisePrescriptions[key];
                 const message = prescription ? buildCoachMessage(prescription as any) : ex.name;
                 return (
                   <Text key={ex.exerciseId} style={[styles.prescriptionItem, { color: c.textMuted }]}>
@@ -173,9 +256,14 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 20, fontWeight: '700', marginBottom: 8 },
   cardBody: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
   cardMeta: { fontSize: 14, marginBottom: 16 },
+  warningBox: { marginBottom: 12 },
+  warningText: { fontSize: 14, marginTop: 8, fontWeight: '600' },
+  priorityRowCompact: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 },
+  priorityBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
+  priorityBadgeText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  blockText: { fontSize: 12, fontWeight: '600' },
   prescriptionList: { marginBottom: 16 },
   prescriptionItem: { fontSize: 14, marginBottom: 4 },
-  warningText: { fontSize: 14, marginTop: 8, fontWeight: '600' },
   button: { paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },

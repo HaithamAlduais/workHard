@@ -6,7 +6,9 @@ import { useI18n } from '../lib/i18n';
 import { useWorkoutStore } from '../stores/workoutStore';
 import { useScheduleStore } from '../stores/scheduleStore';
 import { usePrescriptionStore } from '../stores/prescriptionStore';
+import { useSkillPriorityStore } from '../stores/skillPriorityStore';
 import { buildCoachMessages, buildCoachMessage } from '../lib/coach';
+import { SKILL_FAMILIES, checkSkillPriorityConflicts } from '@gravitypath/domain';
 
 const TONE_COLORS: Record<ReturnType<typeof buildCoachMessages>[number]['tone'], string> = {
   neutral: '#64748b',
@@ -22,15 +24,24 @@ export default function CoachScreen() {
   const { progressionDecisions, pendingSets } = useWorkoutStore();
   const { nextScheduledDate, trainingDays } = useScheduleStore();
   const { exercisePrescriptions, skillPrescriptions } = usePrescriptionStore();
+  const priority = useSkillPriorityStore();
 
   const messages = buildCoachMessages({
     progressionDecisions,
     pendingSets: pendingSets.length,
     nextScheduledDate,
-    trainingDays
+    trainingDays,
+    priority,
+    skillPrescriptions
   });
 
+  const warnings = checkSkillPriorityConflicts(priority, skillPrescriptions);
   const latestDecision = progressionDecisions[progressionDecisions.length - 1];
+
+  const primaryFamily = SKILL_FAMILIES.find((f) => f.id === priority.primarySkillFamilyId);
+  const secondaryFamilies = priority.secondarySkillFamilyIds
+    .map((id) => SKILL_FAMILIES.find((f) => f.id === id))
+    .filter(Boolean);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
@@ -39,6 +50,32 @@ export default function CoachScreen() {
         <Text style={[styles.subtitle, { color: c.textMuted }]}>
           Deterministic recommendations grounded in your workout and skill data.
         </Text>
+
+        <View style={[styles.message, { backgroundColor: c.surface, borderColor: c.border }]}>
+          <Text style={[styles.messageTitle, { color: c.primary }]}>Current Focus</Text>
+          <Text style={[styles.messageBody, { color: c.text }]}>
+            Primary: {isRTL && primaryFamily?.nameAr ? primaryFamily.nameAr : primaryFamily?.name ?? priority.primarySkillFamilyId}
+          </Text>
+          {secondaryFamilies.length > 0 && (
+            <Text style={[styles.messageBody, { color: c.text }]}>
+              Secondaries: {secondaryFamilies.map((f) => (isRTL && f?.nameAr ? f.nameAr : f?.name)).join(', ')}
+            </Text>
+          )}
+          <Text style={[styles.messageMeta, { color: c.textMuted }]}>
+            Template: {priority.goalTemplate.replace(/_/g, ' ')} · Block length: {priority.blockLengthWeeks} weeks
+          </Text>
+        </View>
+
+        {warnings.length > 0 && (
+          <View style={[styles.message, { borderColor: c.warning, borderWidth: 1 }]}>
+            <Text style={[styles.messageTitle, { color: c.warning }]}>Priority Warnings</Text>
+            {warnings.map((warning, idx) => (
+              <Text key={idx} style={[styles.messageBody, { color: c.text }]}>
+                • {warning.message}
+              </Text>
+            ))}
+          </View>
+        )}
 
         {messages.map((m, idx) => (
           <View key={idx} style={[styles.message, { backgroundColor: c.surface, borderColor: c.border }]}>
@@ -66,7 +103,7 @@ export default function CoachScreen() {
               {buildCoachMessage(p, latestDecision)}
             </Text>
             <Text style={[styles.messageMeta, { color: c.textMuted }]}>
-              target: {p.targetRepsOrHoldSeconds} · assistance: {p.assistance} · leverage: {p.leverageLevel} · state: {p.progressionState}
+              target: {p.targetRepsOrHoldSeconds} · status: {p.status} · state: {p.progressionState}
             </Text>
           </View>
         ))}

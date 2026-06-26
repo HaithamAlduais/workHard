@@ -1,5 +1,12 @@
-import { startWorkoutState, type ActiveWorkoutState } from '@gravitypath/domain';
+import {
+  startWorkoutStateWithSkillSlots,
+  updateSkillPrescriptionStatuses,
+  type ActiveWorkoutState
+} from '@gravitypath/domain';
 import { usePrescriptionStore } from '../stores/prescriptionStore';
+import { useCalibrationStore } from '../stores/calibrationStore';
+import { useSkillPriorityStore } from '../stores/skillPriorityStore';
+import { useSkillStore } from '../stores/skillStore';
 import type { ProgressionDecision } from '../stores/workoutStore';
 
 export function bodyRegionFor(exerciseId: string): 'upper' | 'lower' | 'core' {
@@ -25,14 +32,33 @@ export function bodyRegionFor(exerciseId: string): 'upper' | 'lower' | 'core' {
 
 export function startWorkoutStateWithPrescriptions(
   dayId: string,
-  userId: string = 'local',
-  _getExercisePrescription?: (dayId: string, exerciseId: string) => import('../stores/prescriptionStore').ExercisePrescriptionWithMeta | undefined
+  userId: string = 'local'
 ): ActiveWorkoutState {
   const prescriptionStore = usePrescriptionStore.getState();
+  const calibration = useCalibrationStore.getState();
   if (!prescriptionStore.initialized) {
-    prescriptionStore.initializePrescriptions(userId);
+    prescriptionStore.initializePrescriptions(userId, calibration);
   }
-  const workout = startWorkoutState(dayId);
+
+  const priority = useSkillPriorityStore.getState();
+  const unlockStates = useSkillStore.getState().getUnlockStates();
+  const skillPrescriptions = { ...prescriptionStore.skillPrescriptions };
+  const statuses = updateSkillPrescriptionStatuses(priority, skillPrescriptions, unlockStates);
+  for (const [nodeId, status] of Object.entries(statuses)) {
+    const existing = skillPrescriptions[nodeId];
+    if (existing) {
+      skillPrescriptions[nodeId] = { ...existing, status };
+    }
+  }
+
+  const workout = startWorkoutStateWithSkillSlots(dayId, {
+    priority,
+    skillPrescriptions,
+    unlockStates,
+    startingNodes: calibration.skillStartingNodes,
+    availableMinutes: 60
+  });
+
   return prescriptionStore.applyPrescriptionsToWorkout(workout);
 }
 

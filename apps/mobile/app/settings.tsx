@@ -1,11 +1,20 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors } from '../lib/theme';
 import { useI18n, Locale } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
 import { useScheduleStore } from '../stores/scheduleStore';
+import { useSkillPriorityStore } from '../stores/skillPriorityStore';
+import { usePrescriptionStore } from '../stores/prescriptionStore';
+import { SKILL_FAMILIES, validateSkillPriority, checkSkillPriorityConflicts, type SkillPriority } from '@gravitypath/domain';
+
+const GOAL_TEMPLATES: { id: SkillPriority['goalTemplate']; label: string }[] = [
+  { id: 'practical_home', label: 'Practical Home' },
+  { id: 'advanced_calisthenics', label: 'Advanced Calisthenics' },
+  { id: 'elite_mastery', label: 'Elite Mastery' }
+];
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -13,7 +22,9 @@ export default function SettingsScreen() {
   const { t, locale, setLocale, isRTL } = useI18n();
   const { user } = useAuth();
   const { trainingDays, setTrainingDays } = useScheduleStore();
+  const skillPriority = useSkillPriorityStore();
   const [selectedDays, setSelectedDays] = useState<number[]>(trainingDays);
+  const [blockLength, setBlockLength] = useState(String(skillPriority.blockLengthWeeks || 4));
 
   const switchLocale = (l: Locale) => setLocale(l);
 
@@ -29,6 +40,36 @@ export default function SettingsScreen() {
     if (selectedDays.length !== 3) return;
     setTrainingDays(selectedDays);
   };
+
+  const saveBlockLength = () => {
+    const weeks = parseInt(blockLength, 10);
+    if (!Number.isNaN(weeks) && weeks > 0) {
+      skillPriority.setPriority({ blockLengthWeeks: weeks });
+    }
+  };
+
+  const validation = validateSkillPriority(skillPriority);
+  const warnings = checkSkillPriorityConflicts(skillPriority, usePrescriptionStore.getState().skillPrescriptions);
+
+  const renderPriorityButton = (
+    familyId: string,
+    label: string,
+    active: boolean,
+    onPress: () => void
+  ) => (
+    <Pressable
+      key={label}
+      testID={`settings-priority-${familyId}-${label.toLowerCase()}`}
+      style={[
+        styles.priorityChip,
+        active && { backgroundColor: c.primary },
+        { borderColor: c.border }
+      ]}
+      onPress={onPress}
+    >
+      <Text style={{ color: active ? '#fff' : c.text, fontSize: 11 }}>{label}</Text>
+    </Pressable>
+  );
 
   const dayNames = isRTL
     ? ['أحد', 'إثن', 'ثلاث', 'أرب', 'خميس', 'جمعة', 'سبت']
@@ -75,6 +116,89 @@ export default function SettingsScreen() {
         </View>
 
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+          <Text style={[styles.cardTitle, { color: c.text }]}>Skill Priorities</Text>
+          <Text style={{ color: c.textMuted, marginBottom: 12 }}>Choose 1 primary and up to 2 secondary skills.</Text>
+
+          {SKILL_FAMILIES.filter((f) => f.id !== 'expert-rings').map((family) => {
+            const isPrimary = skillPriority.primarySkillFamilyId === family.id;
+            const isSecondary = skillPriority.secondarySkillFamilyIds.includes(family.id);
+            const isMaintenance = skillPriority.maintenanceSkillFamilyIds.includes(family.id);
+            const isInactive = skillPriority.inactiveSkillFamilyIds.includes(family.id);
+            return (
+              <View key={family.id} style={[styles.skillRow, { borderColor: c.border }]}>
+                <Text style={[styles.skillName, { color: c.text }]}>
+                  {isRTL && family.nameAr ? family.nameAr : family.name}
+                </Text>
+                <View style={styles.priorityRow}>
+                  {renderPriorityButton(family.id, 'Primary', isPrimary, () => skillPriority.setPrimary(family.id))}
+                  {renderPriorityButton(family.id, 'Secondary', isSecondary, () => skillPriority.toggleSecondary(family.id))}
+                  {renderPriorityButton(family.id, 'Maint.', isMaintenance, () => skillPriority.toggleMaintenance(family.id))}
+                  {renderPriorityButton(family.id, 'Off', isInactive, () => skillPriority.toggleInactive(family.id))}
+                </View>
+              </View>
+            );
+          })}
+
+          <View style={styles.field}>
+            <Text style={[styles.label, { color: c.text }]}>Goal Template</Text>
+            <View style={styles.row}>
+              {GOAL_TEMPLATES.map((template) => (
+                <Pressable
+                  key={template.id}
+                  style={[styles.chip, skillPriority.goalTemplate === template.id && { backgroundColor: c.primary }]}
+                  onPress={() => skillPriority.setGoalTemplate(template.id)}
+                >
+                  <Text style={{ color: skillPriority.goalTemplate === template.id ? '#fff' : c.text, fontSize: 12 }}>{template.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.field}>
+            <Text style={[styles.label, { color: c.text }]}>Block Length (weeks)</Text>
+            <View style={styles.row}>
+              <TextInput
+                style={[styles.input, { backgroundColor: c.surface, color: c.text, borderColor: c.border }]}
+                keyboardType="numeric"
+                value={blockLength}
+                onChangeText={setBlockLength}
+                onBlur={saveBlockLength}
+              />
+              <Pressable style={[styles.button, { backgroundColor: c.primary }]} onPress={() => skillPriority.startNewBlock(parseInt(blockLength, 10) || 4)}>
+                <Text style={styles.buttonText}>Start New Block</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {warnings.length > 0 && (
+            <View style={styles.field}>
+              {warnings.map((warning, idx) => (
+                <Text key={idx} style={[styles.warningText, { color: c.warning }]}>
+                  ⚠ {warning.message}
+                </Text>
+              ))}
+            </View>
+          )}
+
+          {!validation.valid && (
+            <View style={styles.field}>
+              {validation.errors.map((error, idx) => (
+                <Text key={idx} style={[styles.warningText, { color: c.danger }]}>
+                  • {error}
+                </Text>
+              ))}
+            </View>
+          )}
+
+          <Pressable
+            style={[styles.button, { backgroundColor: c.primary }]}
+            onPress={() => usePrescriptionStore.getState().recomputeSkillStatuses()}
+          >
+            <Text style={styles.buttonText}>Apply Priorities</Text>
+          </Pressable>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
           <Text style={[styles.cardTitle, { color: c.text }]}>{t('unitSystem')}</Text>
           <Text style={{ color: c.textMuted }}>Metric / Imperial toggle coming from profile.</Text>
         </View>
@@ -101,7 +225,24 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   chip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: '#64748b' },
   dayChip: { paddingHorizontal: 10, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: '#64748b', minWidth: 42, alignItems: 'center' },
-  button: { paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginTop: 12 },
+  button: { paddingVertical: 14, borderRadius: 12, alignItems: 'center', marginTop: 12, paddingHorizontal: 16 },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' }
+  buttonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  skillRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    marginBottom: 8
+  },
+  skillName: { flex: 1, fontSize: 13, fontWeight: '600' },
+  priorityRow: { flexDirection: 'row', gap: 4, flexWrap: 'wrap' },
+  priorityChip: { paddingHorizontal: 8, paddingVertical: 5, borderRadius: 14, borderWidth: 1, borderColor: '#64748b' },
+  field: { marginTop: 12 },
+  label: { fontSize: 14, fontWeight: '600', marginBottom: 6 },
+  input: { flex: 1, borderWidth: 1, borderRadius: 12, padding: 12, fontSize: 14 },
+  warningText: { fontSize: 13, marginBottom: 4 }
 });

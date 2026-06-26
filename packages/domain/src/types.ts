@@ -376,6 +376,7 @@ export interface TimeBlock {
   estimatedMinutes: number;
   minRestSeconds: number;
   exercises: string[];
+  required?: boolean;
 }
 
 export interface TimeBudgetDecision {

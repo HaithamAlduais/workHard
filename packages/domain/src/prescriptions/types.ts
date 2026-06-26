@@ -21,6 +21,14 @@ export type SkillProgressionState =
   | 'hold_safety'
   | 'deload_skill';
 
+export type SkillPrescriptionStatus =
+  | 'active_primary'
+  | 'active_secondary'
+  | 'maintenance'
+  | 'inactive'
+  | 'locked'
+  | 'safety_hold';
+
 export type OverrideReason =
   | 'equipment_unavailable'
   | 'pain'
@@ -83,6 +91,7 @@ export interface SkillPrescription {
   progressionState: SkillProgressionState;
   lastCompletedExposure: string | null;
   activeSafetyHold: boolean;
+  status: SkillPrescriptionStatus;
   createdAt: Date;
   updatedAt: Date;
   client_id: string;

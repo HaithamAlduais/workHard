@@ -1,5 +1,6 @@
 import { getSkillNode, getProgramDay } from '@gravitypath/domain';
 import type { ProgressionDecision } from '../stores/workoutStore';
+import type { SkillPriority, SkillPrescription } from '@gravitypath/domain';
 import type {
   ExercisePrescriptionWithMeta,
   SkillPrescriptionWithMeta
@@ -30,8 +31,9 @@ export function buildCoachMessage(
       : 'as prescribed';
   const leverage = prescription.leverageLevel !== 'full' ? ` at ${prescription.leverageLevel} leverage` : '';
   const assistance = prescription.assistance !== 'none' ? ` with ${prescription.assistance} assistance` : '';
+  const statusText = prescription.status ? ` (${prescription.status.replace(/_/g, ' ')})` : '';
   const decisionText = decision ? ` Last decision: ${decision.reason}` : '';
-  return `${name}: ${target}${leverage}${assistance}.${decisionText}`;
+  return `${name}${statusText}: ${target}${leverage}${assistance}.${decisionText}`;
 }
 
 function exerciseName(exerciseId: string): string {
@@ -53,15 +55,31 @@ export function buildCoachMessages({
   progressionDecisions,
   pendingSets,
   nextScheduledDate,
-  trainingDays
+  trainingDays,
+  priority,
+  skillPrescriptions
 }: {
   progressionDecisions: ProgressionDecision[];
   pendingSets: number;
   nextScheduledDate: string;
   trainingDays: number[];
+  priority: SkillPriority;
+  skillPrescriptions: Record<string, SkillPrescriptionWithMeta>;
 }): CoachMessage[] {
   const messages: CoachMessage[] = [];
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const primaryPrescription = Object.values(skillPrescriptions).find(
+    (p) => p.skill_family_id === priority.primarySkillFamilyId && p.status === 'active_primary'
+  );
+
+  if (primaryPrescription) {
+    messages.push({
+      title: 'Primary Skill Focus',
+      body: `${nodeName(primaryPrescription.currentNode)} is your primary focus. Aim for quality exposures and only progress when the target is consistently clean.`,
+      tone: 'positive'
+    });
+  }
 
   if (progressionDecisions.length === 0) {
     messages.push({

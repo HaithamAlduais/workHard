@@ -269,6 +269,7 @@ export function createSkillPrescription(input: CreateSkillPrescriptionInput): Sk
     progressionState: 'maintain',
     lastCompletedExposure: null,
     activeSafetyHold: false,
+    status: 'maintenance',
     createdAt: now,
     updatedAt: now,
     client_id: clientId ?? userId

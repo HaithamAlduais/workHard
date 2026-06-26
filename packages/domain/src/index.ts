@@ -3,6 +3,7 @@ export * from './strength/progression.js';
 export * from './skills/progression.js';
 export * from './skills/unlock.js';
 export * from './skills/graph.js';
+export * from './skills/skillSlots.js';
 export * from './volume/engine.js';
 export * from './replacement/engine.js';
 export * from './graduation/engine.js';

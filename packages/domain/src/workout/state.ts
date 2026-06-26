@@ -67,6 +67,7 @@ export interface ActiveWorkoutState {
   blocks: WorkoutBlock[];
   currentBlockIndex: number;
   elapsedSeconds: number;
+  warnings?: string[];
 }
 
 export function buildBlocks(exercises: WorkoutExercise[]): WorkoutBlock[] {

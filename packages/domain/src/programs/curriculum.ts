@@ -1,6 +1,9 @@
 import { buildBlocks, type WorkoutExercise } from '../workout/state.js';
 import type { ActiveWorkoutState } from '../workout/state.js';
-import type { PairType, SessionOrderClass } from '../types.js';
+import type { PairType, SessionOrderClass, TimeBlock } from '../types.js';
+import type { SkillSlot, SkillPriority, GenerateSkillSlotsOptions } from '../skills/skillSlots.js';
+import { generateSkillSlotsForDay } from '../skills/skillSlots.js';
+import { buildTimeBudget } from '../time-budget/engine.js';
 
 interface ProgramExerciseSpec {
   id: string;
@@ -26,6 +29,12 @@ interface ProgramDay {
   targetDurationMinutes: number;
   exercises: ProgramExerciseSpec[];
 }
+
+const SKILL_ORDER_CLASSES: Set<SessionOrderClass> = new Set([
+  'TECHNIQUE_FIRST',
+  'STRENGTH_SKILL',
+  'HYPERTROPHY_SKILL'
+]);
 
 export const HYBRID_CURRICULUM: ProgramDay[] = [
   {
@@ -93,9 +102,128 @@ export function getProgramDay(dayId: string): ProgramDay | undefined {
   return HYBRID_CURRICULUM.find((d) => d.id === dayId);
 }
 
-export function startWorkoutState(dayId: string, overrides?: Partial<ActiveWorkoutState>): ActiveWorkoutState {
-  const day = getProgramDay(dayId) ?? HYBRID_CURRICULUM[0];
-  const exercises: WorkoutExercise[] = day.exercises.map((e) => ({
+function tierForOrderClass(orderClass: SessionOrderClass): TimeBlock['tier'] {
+  switch (orderClass) {
+    case 'PREPARATION':
+    case 'TECHNIQUE_FIRST':
+    case 'STRENGTH_SKILL':
+    case 'HYPERTROPHY_SKILL':
+      return 1;
+    case 'POWER':
+    case 'GYM_STRENGTH':
+      return 2;
+    case 'GYM_HYPERTROPHY':
+      return 3;
+    case 'ACCESSORY':
+      return 4;
+    case 'RECOVERY':
+      return 5;
+    default:
+      return 3;
+  }
+}
+
+function estimateSlotMinutes(slot: SkillSlot): number {
+  const workPerSet =
+    slot.targetHoldSeconds ??
+    (slot.targetRepsMin !== undefined && slot.targetRepsMax !== undefined
+      ? (slot.targetRepsMin + slot.targetRepsMax) / 2 * 3
+      : 30);
+  const transitionSeconds = 120;
+  return Math.ceil((slot.targetSets * workPerSet + (slot.targetSets - 1) * slot.restSeconds + transitionSeconds) / 60);
+}
+
+function estimateExerciseMinutes(ex: ProgramExerciseSpec): number {
+  const workPerSet =
+    ex.targetHoldSeconds ??
+    (ex.targetRepsMin !== undefined && ex.targetRepsMax !== undefined
+      ? (ex.targetRepsMin + ex.targetRepsMax) / 2 * 3
+      : 30);
+  const transitionSeconds = 90;
+  return Math.ceil((ex.targetSets * workPerSet + (ex.targetSets - 1) * ex.restSeconds + transitionSeconds) / 60);
+}
+
+export interface HybridProgramDayOptions extends GenerateSkillSlotsOptions {
+  availableMinutes?: number;
+}
+
+export interface HybridProgramDayResult {
+  day: ProgramDay;
+  removedBlocks: TimeBlock[];
+  warnings: string[];
+  totalMinutes: number;
+}
+
+export function getHybridProgramDay(dayId: string, options: HybridProgramDayOptions): HybridProgramDayResult {
+  const baseDay = getProgramDay(dayId) ?? HYBRID_CURRICULUM[0];
+  const stableExercises = baseDay.exercises.filter((ex) => !SKILL_ORDER_CLASSES.has(ex.orderClass));
+  const skillSlots = generateSkillSlotsForDay(dayId, options);
+  const availableMinutes = options.availableMinutes ?? 60;
+
+  const blocks: TimeBlock[] = [];
+  for (const slot of skillSlots) {
+    blocks.push({
+      id: slot.id,
+      orderClass: slot.orderClass,
+      tier: 1,
+      estimatedMinutes: estimateSlotMinutes(slot),
+      minRestSeconds: slot.restSeconds,
+      exercises: [slot.exerciseId],
+      required: true
+    });
+  }
+
+  for (const ex of stableExercises) {
+    blocks.push({
+      id: ex.id,
+      orderClass: ex.orderClass,
+      tier: tierForOrderClass(ex.orderClass),
+      estimatedMinutes: estimateExerciseMinutes(ex),
+      minRestSeconds: ex.restSeconds,
+      exercises: [ex.exerciseId],
+      required: ex.orderClass === 'POWER' || ex.orderClass === 'GYM_STRENGTH' || ex.orderClass === 'PREPARATION'
+    });
+  }
+
+  const decision = buildTimeBudget({ blocks, availableMinutes });
+  const removedIds = new Set(decision.removedBlocks.map((b) => b.id));
+
+  const keptSlots = skillSlots.filter((s) => !removedIds.has(s.id));
+  const keptStable = stableExercises.filter((e) => !removedIds.has(e.id));
+
+  const exercises: ProgramExerciseSpec[] = [
+    ...keptSlots.map((slot) => ({
+      id: slot.id,
+      exerciseId: slot.exerciseId,
+      name: slot.name,
+      nameAr: slot.nameAr,
+      orderClass: slot.orderClass,
+      pairId: slot.pairId,
+      pairType: slot.pairType,
+      role: slot.role,
+      targetSets: slot.targetSets,
+      targetRepsMin: slot.targetRepsMin,
+      targetRepsMax: slot.targetRepsMax,
+      targetHoldSeconds: slot.targetHoldSeconds,
+      restSeconds: slot.restSeconds
+    })),
+    ...keptStable
+  ];
+
+  return {
+    day: {
+      ...baseDay,
+      targetDurationMinutes: decision.totalMinutes,
+      exercises
+    },
+    removedBlocks: decision.removedBlocks,
+    warnings: decision.warnings,
+    totalMinutes: decision.totalMinutes
+  };
+}
+
+function workoutExercisesFromProgramDay(day: ProgramDay): WorkoutExercise[] {
+  return day.exercises.map((e) => ({
     id: e.id,
     exerciseId: e.exerciseId,
     name: e.name,
@@ -111,6 +239,11 @@ export function startWorkoutState(dayId: string, overrides?: Partial<ActiveWorko
     targetHoldSeconds: e.targetHoldSeconds,
     restSeconds: e.restSeconds
   }));
+}
+
+export function startWorkoutState(dayId: string, overrides?: Partial<ActiveWorkoutState>): ActiveWorkoutState {
+  const day = getProgramDay(dayId) ?? HYBRID_CURRICULUM[0];
+  const exercises = workoutExercisesFromProgramDay(day);
   return {
     id: `ws-${Date.now()}`,
     programDayId: day.id,
@@ -121,6 +254,28 @@ export function startWorkoutState(dayId: string, overrides?: Partial<ActiveWorko
     blocks: buildBlocks(exercises),
     currentBlockIndex: 0,
     elapsedSeconds: 0,
+    ...overrides
+  };
+}
+
+export function startWorkoutStateWithSkillSlots(
+  dayId: string,
+  options: HybridProgramDayOptions,
+  overrides?: Partial<ActiveWorkoutState>
+): ActiveWorkoutState {
+  const { day, warnings } = getHybridProgramDay(dayId, options);
+  const exercises = workoutExercisesFromProgramDay(day);
+  return {
+    id: `ws-${Date.now()}`,
+    programDayId: day.id,
+    dayName: day.name,
+    dayNameAr: day.nameAr,
+    startedAt: new Date().toISOString(),
+    status: 'active',
+    blocks: buildBlocks(exercises),
+    currentBlockIndex: 0,
+    elapsedSeconds: 0,
+    warnings,
     ...overrides
   };
 }

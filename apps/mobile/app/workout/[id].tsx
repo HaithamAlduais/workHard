@@ -190,7 +190,7 @@ export default function WorkoutScreen() {
       </View>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={[styles.dayName, { color: c.text }]}>{activeWorkout.dayName}</Text>
-        <Text style={[styles.exerciseName, { color: c.primary }]}>{isRTL && ex.nameAr ? ex.nameAr : ex.name}</Text>
+        <Text testID={`exercise-name-${ex.exerciseId}`} style={[styles.exerciseName, { color: c.primary }]}>{isRTL && ex.nameAr ? ex.nameAr : ex.name}</Text>
         <Text style={[styles.meta, { color: c.textMuted }]}>
           {block.type} · {ex.orderClass} · {t('set')} {completedSets + 1} / {ex.targetSets}
         </Text>

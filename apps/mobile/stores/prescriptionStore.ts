@@ -10,6 +10,7 @@ import {
   applyHypertrophyDecision,
   applySkillDecision,
   getSkillNode,
+  updateSkillPrescriptionStatuses,
   type ExercisePrescription,
   type SkillPrescription,
   type OverrideRecord,
@@ -22,6 +23,8 @@ import {
 } from '@gravitypath/domain';
 import { bodyRegionFor } from '../lib/prescriptions';
 import type { CalibrationState } from './calibrationStore';
+import { useSkillPriorityStore } from './skillPriorityStore';
+import { useSkillStore } from './skillStore';
 import type { ProgressionDecision } from './workoutStore';
 
 export type ExercisePrescriptionWithMeta = ExercisePrescription & {
@@ -50,6 +53,7 @@ interface PrescriptionState {
   markExercisePrescriptionsSynced: (keys: string[]) => void;
   markSkillPrescriptionsSynced: (nodeIds: string[]) => void;
   applyPrescriptionsToWorkout: (workout: ActiveWorkoutState) => ActiveWorkoutState;
+  recomputeSkillStatuses: () => void;
 }
 
 const GYM_DECISION_TYPES = new Set(['ADD_REPS', 'ADD_LOAD', 'REDUCE_LOAD', 'MAINTAIN_LOAD', 'HOLD_FOR_SAFETY']);
@@ -336,6 +340,22 @@ export const usePrescriptionStore = create<PrescriptionState>()(
             delete pendingSkillPrescriptions[nodeId];
           }
           return { ...state, pendingSkillPrescriptions };
+        });
+      },
+
+      recomputeSkillStatuses: () => {
+        set((state) => {
+          const priority = useSkillPriorityStore.getState();
+          const unlockStates = useSkillStore.getState().getUnlockStates();
+          const statuses = updateSkillPrescriptionStatuses(priority, state.skillPrescriptions, unlockStates);
+          const skillPrescriptions = { ...state.skillPrescriptions };
+          for (const [nodeId, status] of Object.entries(statuses)) {
+            const existing = skillPrescriptions[nodeId];
+            if (existing) {
+              skillPrescriptions[nodeId] = { ...existing, status };
+            }
+          }
+          return { ...state, skillPrescriptions };
         });
       },
 
