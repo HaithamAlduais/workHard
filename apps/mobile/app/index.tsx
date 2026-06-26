@@ -5,6 +5,8 @@ import { useColors } from '../lib/theme';
 import { useI18n } from '../lib/i18n';
 import { useAuth } from '../lib/auth';
 import { useWorkoutStore } from '../stores/workoutStore';
+import { useScheduleStore } from '../stores/scheduleStore';
+import { getProgramDay } from '@gravitypath/domain';
 import { APP_NAME } from '../lib/config';
 
 export default function Dashboard() {
@@ -12,9 +14,16 @@ export default function Dashboard() {
   const c = useColors();
   const { t, isRTL } = useI18n();
   const { user, signOut } = useAuth();
-  const { activeWorkout, isOffline, pendingSets } = useWorkoutStore();
+  const { activeWorkout, isOffline, pendingSets, progressionDecisions } = useWorkoutStore();
+  const { getNextDayId, nextScheduledDate, trainingDays } = useScheduleStore();
 
+  const nextDayId = activeWorkout ? activeWorkout.programDayId : getNextDayId();
+  const nextDay = getProgramDay(nextDayId);
   const hasActive = activeWorkout && activeWorkout.status === 'active';
+  const nextDate = new Date(nextScheduledDate);
+  const isToday = new Date().toDateString() === nextDate.toDateString();
+
+  const latestDecision = progressionDecisions[progressionDecisions.length - 1];
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
@@ -22,33 +31,42 @@ export default function Dashboard() {
         <View style={styles.header}>
           <Text style={[styles.title, { color: c.text }]}>{APP_NAME}</Text>
           <Text style={[styles.subtitle, { color: c.textMuted }]}>{t('tagline')}</Text>
-          {isOffline && (
-            <View style={[styles.badge, { backgroundColor: c.warning }]}>
-              <Text style={styles.badgeText}>{t('offline')}</Text>
-            </View>
-          )}
-          {pendingSets.length > 0 && !isOffline && (
-            <View style={[styles.badge, { backgroundColor: c.primary }]}>
-              <Text style={styles.badgeText}>{t('syncPending')} ({pendingSets.length})</Text>
-            </View>
-          )}
+          <View style={styles.badges}>
+            {isOffline && (
+              <View style={[styles.badge, { backgroundColor: c.warning }]}>
+                <Text style={styles.badgeText}>{t('offline')}</Text>
+              </View>
+            )}
+            {pendingSets.length > 0 && !isOffline && (
+              <View style={[styles.badge, { backgroundColor: c.primary }]}>
+                <Text style={styles.badgeText}>{t('syncPending')} ({pendingSets.length})</Text>
+              </View>
+            )}
+          </View>
         </View>
 
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
           <Text style={[styles.cardTitle, { color: c.text }]}>{t('nextWorkout')}</Text>
-          <Text style={[styles.cardBody, { color: c.textMuted }]}>
-            {hasActive ? activeWorkout.dayName : 'Day 1 — Push Skill, Squat, Weighted Pull'}
+          <Text style={[styles.cardBody, { color: c.text }]}>
+            {isRTL && nextDay?.nameAr ? nextDay.nameAr : nextDay?.name ?? 'Workout'}
           </Text>
           <Text style={[styles.cardMeta, { color: c.textMuted }]}>
-            {t('estimatedDuration')}: ~58 {t('minutes')}
+            {isToday ? t('today') : nextDate.toLocaleDateString()} · ~{nextDay?.targetDurationMinutes ?? 58} {t('minutes')}
           </Text>
           <Pressable
             style={[styles.button, { backgroundColor: c.primary }]}
-            onPress={() => router.push('/workout/day1')}
+            onPress={() => router.push(`/workout/${nextDayId}`)}
           >
-            <Text style={styles.buttonText}>{hasActive ? t('continueWorkout') ?? 'Continue' : t('startWorkout')}</Text>
+            <Text style={styles.buttonText}>{hasActive ? (t('continueWorkout') ?? 'Continue') : t('startWorkout')}</Text>
           </Pressable>
         </View>
+
+        {latestDecision && (
+          <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <Text style={[styles.cardTitle, { color: c.text }]}>{t('coach')}</Text>
+            <Text style={[styles.cardBody, { color: c.textMuted }]}>{latestDecision.reason}</Text>
+          </View>
+        )}
 
         <View style={styles.grid}>
           <MenuButton label={t('skillTree')} onPress={() => router.push('/skill-tree')} c={c} />
@@ -88,11 +106,12 @@ const styles = StyleSheet.create({
   header: { marginBottom: 24 },
   title: { fontSize: 32, fontWeight: '800' },
   subtitle: { fontSize: 16, marginTop: 4 },
-  badge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, marginTop: 8 },
+  badges: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   badgeText: { color: '#000', fontWeight: '700', fontSize: 12 },
   card: { borderWidth: 1, borderRadius: 16, padding: 20, marginBottom: 20 },
   cardTitle: { fontSize: 20, fontWeight: '700', marginBottom: 8 },
-  cardBody: { fontSize: 16, marginBottom: 4 },
+  cardBody: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
   cardMeta: { fontSize: 14, marginBottom: 16 },
   button: { paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' },

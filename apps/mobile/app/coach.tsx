@@ -3,37 +3,43 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors } from '../lib/theme';
 import { useI18n } from '../lib/i18n';
+import { useWorkoutStore } from '../stores/workoutStore';
+import { useScheduleStore } from '../stores/scheduleStore';
+import { buildCoachMessages } from '../lib/coach';
 
-const MESSAGES = [
-  {
-    title: 'Weighted Pull-up',
-    body: 'Your weighted pull-up remains at 15 kg because you completed 6, 6, and 5 repetitions. The rule requires 6, 6, and 6 with acceptable form before increasing load. Your next target is 6, 6, and 6 at 15 kg.'
-  },
-  {
-    title: 'Front Lever',
-    body: 'You have not unlocked full front lever because your advanced-tuck holds reached the time target only once. The node requires the target on two of three exposures with acceptable body-line quality.'
-  },
-  {
-    title: 'Home Readiness',
-    body: 'You are home-ready for vertical pulling but not yet for hamstring knee-flexion. You still need a Nordic or ring-curl progression that can provide sufficient loading.'
-  }
-];
+const TONE_COLORS: Record<ReturnType<typeof buildCoachMessages>[number]['tone'], string> = {
+  neutral: '#64748b',
+  positive: '#22c55e',
+  warning: '#f87171',
+  action: '#38bdf8'
+};
 
 export default function CoachScreen() {
   const router = useRouter();
   const c = useColors();
-  const { t } = useI18n();
+  const { t, isRTL } = useI18n();
+  const { progressionDecisions, pendingSets } = useWorkoutStore();
+  const { nextScheduledDate, trainingDays } = useScheduleStore();
+
+  const messages = buildCoachMessages({
+    progressionDecisions,
+    pendingSets: pendingSets.length,
+    nextScheduledDate,
+    trainingDays
+  });
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={[styles.title, { color: c.text }]}>{t('coach')}</Text>
-        <Text style={[styles.subtitle, { color: c.textMuted }]}>Deterministic recommendations, explained in plain language.</Text>
+        <Text style={[styles.subtitle, { color: c.textMuted }]}>
+          Deterministic recommendations grounded in your workout and skill data.
+        </Text>
 
-        {MESSAGES.map((m, idx) => (
+        {messages.map((m, idx) => (
           <View key={idx} style={[styles.message, { backgroundColor: c.surface, borderColor: c.border }]}>
-            <Text style={[styles.messageTitle, { color: c.primary }]}>{m.title}</Text>
-            <Text style={[styles.messageBody, { color: c.text }]}>{m.body}</Text>
+            <Text style={[styles.messageTitle, { color: TONE_COLORS[m.tone] }]}>{m.title}</Text>
+            <Text style={[styles.messageBody, { color: c.text, textAlign: isRTL ? 'right' : 'left' }]}>{m.body}</Text>
           </View>
         ))}
 

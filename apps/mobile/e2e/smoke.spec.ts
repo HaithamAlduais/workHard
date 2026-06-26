@@ -5,10 +5,11 @@ test('dashboard loads and navigation works', async ({ page }) => {
   await expect(page.locator('text=GravityPath')).toBeVisible();
   await expect(page.locator('text=Next Workout')).toBeVisible();
 
-  await page.click('text=Skill Tree');
-  await expect(page.getByText('Pull-up', { exact: true })).toBeVisible();
+  await page.getByText('Skill Tree', { exact: true }).click();
+  await expect(page.getByText('Pull-up & Weighted Pull-up')).toBeVisible();
 
-  await page.click('text=Back');
+  await page.getByText('Back', { exact: true }).click();
+  await expect(page).toHaveURL('/');
   await expect(page.locator('text=Next Workout')).toBeVisible();
 });
 

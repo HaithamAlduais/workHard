@@ -1,5 +1,23 @@
 import type { SkillNode, SkillAttempt, SkillDecision, SkillQualityDimensions } from '../types.js';
 
+function groupAttemptsByExposure(attempts: SkillAttempt[]): SkillAttempt[][] {
+  const bySession = new Map<string, SkillAttempt[]>();
+  for (const a of attempts) {
+    const key = a.workoutSessionId ?? a.completedAt.toISOString().split('T')[0];
+    const list = bySession.get(key) ?? [];
+    list.push(a);
+    bySession.set(key, list);
+  }
+  return Array.from(bySession.values()).sort((a, b) => a[0].completedAt.getTime() - b[0].completedAt.getTime());
+}
+
+function bestAttemptPerExposure(attempts: SkillAttempt[]): SkillAttempt[] {
+  const exposures = groupAttemptsByExposure(attempts);
+  return exposures.map((exposureAttempts) =>
+    exposureAttempts.reduce((best, current) => (current.qualityScore > best.qualityScore ? current : best), exposureAttempts[0])
+  );
+}
+
 export function decideSkillProgression(
   node: SkillNode,
   recentAttempts: SkillAttempt[],
@@ -13,7 +31,8 @@ export function decideSkillProgression(
     return { type: 'HOLD_FOR_SAFETY', reason: 'Pain reported during skill practice. Hold progression until pain-free.' };
   }
 
-  const validAttempts = recentAttempts.filter((a) => a.qualityScore >= node.targetQuality && a.painLevel === 0);
+  const exposureBest = bestAttemptPerExposure(recentAttempts);
+  const validExposures = exposureBest.filter((a) => a.qualityScore >= node.targetQuality && a.painLevel === 0);
   const qualityDrop = detectQualityDrop(recentAttempts, node.targetQuality);
 
   if (qualityDrop) {
@@ -34,24 +53,24 @@ export function decideSkillProgression(
   }
 
   if (node.staticOrDynamic === 'static') {
-    return decideStaticSkillProgression(node, recentAttempts, validAttempts);
+    return decideStaticSkillProgression(node, exposureBest, validExposures);
   }
 
-  return decideDynamicSkillProgression(node, recentAttempts, validAttempts);
+  return decideDynamicSkillProgression(node, exposureBest, validExposures);
 }
 
 function decideStaticSkillProgression(
   node: SkillNode,
-  recentAttempts: SkillAttempt[],
-  validAttempts: SkillAttempt[]
+  exposureBest: SkillAttempt[],
+  validExposures: SkillAttempt[]
 ): SkillDecision {
   const dose = node.targetDose;
   if (!dose.holdSecondsMin || !dose.holdSecondsMax || !dose.sets) {
     return { type: 'MAINTAIN_NODE', reason: 'Static node missing dose definition.' };
   }
 
-  const sufficientCount = validAttempts.length >= node.unlockRule.requiredSuccessfulExposures;
-  const holds = recentAttempts.filter((a) => (a.validHoldSeconds ?? 0) >= dose.holdSecondsMin!);
+  const sufficientCount = validExposures.length >= node.unlockRule.requiredSuccessfulExposures;
+  const holds = exposureBest.filter((a) => (a.validHoldSeconds ?? 0) >= dose.holdSecondsMin!);
   const medianHold = median(holds.map((a) => a.validHoldSeconds ?? 0));
 
   if (sufficientCount && medianHold >= dose.holdSecondsMax) {
@@ -59,7 +78,7 @@ function decideStaticSkillProgression(
       return {
         type: 'UNLOCK_NEXT_NODE',
         targetNodeId: node.progressions[0],
-        reason: `Met hold target (${dose.holdSecondsMax}s) on ${validAttempts.length} exposures with acceptable quality. Unlock next progression.`
+        reason: `Met hold target (${dose.holdSecondsMax}s) on ${validExposures.length} exposures with acceptable quality. Unlock next progression.`
       };
     }
     return { type: 'ADD_LOAD', reason: 'At maximum leverage and hold target. Add external load carefully.' };
@@ -72,16 +91,16 @@ function decideStaticSkillProgression(
     };
   }
 
-  if (sufficientCount && medianHold >= dose.holdSecondsMin) {
+  if (validExposures.length >= node.unlockRule.requiredExposures && medianHold >= dose.holdSecondsMin) {
     return { type: 'ADD_HOLD_TIME', reason: 'Quality holds meet minimum duration. Push hold time toward target.' };
   }
 
-  if (recentAttempts.length >= node.regressRule.failedExposures && holds.length === 0) {
+  if (exposureBest.length >= node.regressRule.failedExposures && holds.length === 0) {
     if (node.regressions.length > 0) {
       return {
         type: 'REGRESS_NODE',
         targetNodeId: node.regressions[0],
-        reason: `Failed to reach minimum hold duration on ${recentAttempts.length} exposures. Regress to build quality.`
+        reason: `Failed to reach minimum hold duration on ${exposureBest.length} exposures. Regress to build quality.`
       };
     }
   }
@@ -91,24 +110,24 @@ function decideStaticSkillProgression(
 
 function decideDynamicSkillProgression(
   node: SkillNode,
-  recentAttempts: SkillAttempt[],
-  validAttempts: SkillAttempt[]
+  exposureBest: SkillAttempt[],
+  validExposures: SkillAttempt[]
 ): SkillDecision {
   const dose = node.targetDose;
   if (!dose.repsMin || !dose.repsMax || !dose.sets) {
     return { type: 'MAINTAIN_NODE', reason: 'Dynamic node missing dose definition.' };
   }
 
-  const sufficientCount = validAttempts.length >= node.unlockRule.requiredSuccessfulExposures;
-  const allAtTop = validAttempts.length >= node.unlockRule.requiredExposures &&
-    validAttempts.every((a) => (a.repetitions ?? 0) >= dose.repsMax!);
+  const sufficientCount = validExposures.length >= node.unlockRule.requiredSuccessfulExposures;
+  const allAtTop = validExposures.length >= node.unlockRule.requiredExposures &&
+    validExposures.every((a) => (a.repetitions ?? 0) >= dose.repsMax!);
 
   if (allAtTop && sufficientCount) {
     if (node.progressions.length > 0) {
       return {
         type: 'UNLOCK_NEXT_NODE',
         targetNodeId: node.progressions[0],
-        reason: `Reached ${dose.repsMax} reps across ${validAttempts.length} quality exposures. Unlock next progression.`
+        reason: `Reached ${dose.repsMax} reps across ${validExposures.length} quality exposures. Unlock next progression.`
       };
     }
     if (node.volumeRule === 'WEIGHTED_DYNAMIC_FULL_SET') {
@@ -117,19 +136,19 @@ function decideDynamicSkillProgression(
     return { type: 'REDUCE_ASSISTANCE', reason: 'Top of rep range mastered. Reduce assistance or advance leverage.' };
   }
 
-  if (validAttempts.length >= node.unlockRule.requiredExposures) {
-    const medianReps = median(validAttempts.map((a) => a.repetitions ?? 0));
+  if (validExposures.length >= node.unlockRule.requiredExposures) {
+    const medianReps = median(validExposures.map((a) => a.repetitions ?? 0));
     if (medianReps >= dose.repsMin && medianReps < dose.repsMax) {
       return { type: 'ADD_REP', reason: `Reps within target range. Add one rep toward ${dose.repsMax}.` };
     }
   }
 
-  if (recentAttempts.length >= node.regressRule.failedExposures && validAttempts.length === 0) {
+  if (exposureBest.length >= node.regressRule.failedExposures && validExposures.length === 0) {
     if (node.regressions.length > 0) {
       return {
         type: 'REGRESS_NODE',
         targetNodeId: node.regressions[0],
-        reason: `No quality exposures in ${recentAttempts.length} attempts. Regress to rebuild form.`
+        reason: `No quality exposures in ${exposureBest.length} attempts. Regress to rebuild form.`
       };
     }
   }

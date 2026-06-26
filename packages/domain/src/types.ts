@@ -199,6 +199,7 @@ export interface SkillAttempt {
   id: string;
   userId: string;
   skillNodeId: string;
+  workoutSessionId?: string;
   completedAt: Date;
   repetitions?: number;
   holdSeconds?: number;

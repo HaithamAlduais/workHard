@@ -4,6 +4,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from '../lib/theme';
 import { I18nProvider } from '../lib/i18n';
 import { AuthProvider } from '../lib/auth';
+import { useOfflineSync } from '../lib/sync';
+
+function SyncManager() {
+  useOfflineSync();
+  return null;
+}
 
 export default function RootLayout() {
   return (
@@ -11,6 +17,7 @@ export default function RootLayout() {
       <ThemeProvider>
         <I18nProvider>
           <AuthProvider>
+            <SyncManager />
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="index" />
               <Stack.Screen name="onboarding" />

@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors } from '../lib/theme';
 import { useI18n } from '../lib/i18n';
+import { useScheduleStore } from '../stores/scheduleStore';
 
 export default function Onboarding() {
   const router = useRouter();
@@ -13,12 +14,14 @@ export default function Onboarding() {
   const [unit, setUnit] = useState<'metric' | 'imperial'>('metric');
   const [days, setDays] = useState<number[]>([1, 3, 5]);
   const [primarySkill, setPrimarySkill] = useState('handstand');
+  const { setTrainingDays } = useScheduleStore();
 
   const toggleDay = (d: number) => {
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort((a, b) => a - b)));
   };
 
   const save = () => {
+    setTrainingDays(days);
     router.back();
   };
 

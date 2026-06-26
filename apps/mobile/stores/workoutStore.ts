@@ -1,106 +1,217 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { ActiveWorkoutState, LoggedSet, WorkoutBlock, WorkoutExercise, NextSetResult } from '@gravitypath/domain';
+import { advanceAfterSet, currentExercise, currentBlock, startWorkoutState } from '@gravitypath/domain';
 
-export interface WorkoutSet {
-  id: string;
+export type { ActiveWorkoutState, LoggedSet };
+
+export interface ProgressionDecision {
   exerciseId: string;
-  setNumber: number;
-  loadKg: number;
-  reps: number;
-  rir: number;
-  holdSeconds?: number;
-  painLevel: number;
-  restSeconds: number;
-  completedAt?: string;
-  pendingSync: boolean;
-}
-
-export interface ActiveExercise {
-  id: string;
-  exerciseId: string;
-  name: string;
-  orderClass: string;
-  pairId?: string;
-  pairType?: string;
-  targetSets: number;
-  targetRepsMin?: number;
-  targetRepsMax?: number;
-  targetLoadKg?: number;
-  targetHoldSeconds?: number;
-  sets: WorkoutSet[];
-}
-
-export interface ActiveWorkout {
-  id: string;
-  programDayId: string;
-  dayName: string;
-  startedAt: string;
-  exercises: ActiveExercise[];
-  currentExerciseIndex: number;
-  elapsedSeconds: number;
-  status: 'idle' | 'active' | 'completed';
+  decisionType: string;
+  newTarget?: { loadKg?: number; repsMin?: number; repsMax?: number; holdSeconds?: number };
+  targetNodeId?: string;
+  reason: string;
+  decidedAt: string;
 }
 
 interface WorkoutState {
-  activeWorkout: ActiveWorkout | null;
-  pendingSets: WorkoutSet[];
+  activeWorkout: ActiveWorkoutState | null;
+  completedWorkouts: ActiveWorkoutState[];
+  sets: LoggedSet[];
+  pendingSets: LoggedSet[];
+  progressionDecisions: ProgressionDecision[];
   isOffline: boolean;
-  startWorkout: (workout: ActiveWorkout) => void;
-  completeSet: (exerciseId: string, set: WorkoutSet) => void;
-  nextExercise: () => void;
-  tick: () => void;
+  syncStatus: 'idle' | 'syncing' | 'error';
+  lastSyncAt?: string;
+  // actions
+  startWorkout: (dayId: string) => void;
+  resumeWorkout: () => void;
+  completeSet: (set: LoggedSet) => NextSetResult;
+  skipSet: () => void;
+  stopForPain: () => void;
   finishWorkout: () => void;
+  tick: () => void;
   setOffline: (offline: boolean) => void;
   markSynced: (ids: string[]) => void;
+  setSyncStatus: (status: 'idle' | 'syncing' | 'error') => void;
+  addProgressionDecision: (decision: ProgressionDecision) => void;
+  resetStore: () => void;
+}
+
+function getCompletedSetsForExercise(state: WorkoutState, exerciseId: string): LoggedSet[] {
+  return state.sets.filter((s) => s.exerciseId === exerciseId && s.status !== 'skipped');
 }
 
 export const useWorkoutStore = create<WorkoutState>()(
   persist(
     (set, get) => ({
       activeWorkout: null,
+      completedWorkouts: [],
+      sets: [],
       pendingSets: [],
+      progressionDecisions: [],
       isOffline: false,
-      startWorkout: (workout) => set({ activeWorkout: workout }),
-      completeSet: (exerciseId, newSet) => {
-        const { activeWorkout, pendingSets } = get();
-        if (!activeWorkout) return;
-        const exercises = activeWorkout.exercises.map((ex) => {
-          if (ex.id !== exerciseId) return ex;
-          const existing = ex.sets.find((s) => s.id === newSet.id);
-          const sets = existing ? ex.sets.map((s) => (s.id === newSet.id ? newSet : s)) : [...ex.sets, newSet];
-          return { ...ex, sets };
-        });
-        set({
-          activeWorkout: { ...activeWorkout, exercises },
-          pendingSets: [...pendingSets, newSet]
-        });
+      syncStatus: 'idle',
+
+      startWorkout: (dayId) => {
+        const workout = startWorkoutState(dayId);
+        set({ activeWorkout: workout });
       },
-      nextExercise: () => {
+
+      resumeWorkout: () => {
+        // activeWorkout is already persisted; this is a no-op trigger for UI
+      },
+
+      completeSet: (loggedSet) => {
+        const { activeWorkout } = get();
+        if (!activeWorkout) {
+          return { blockCompleted: false, nextBlockIndex: 0, nextExerciseIndex: 0, restSeconds: 0 };
+        }
+        const result = advanceAfterSet(activeWorkout, loggedSet, (exerciseId) => getCompletedSetsForExercise(get(), exerciseId));
+
+        const updatedBlocks = activeWorkout.blocks.map((block, idx) => {
+          if (idx !== result.nextBlockIndex) return block;
+          return {
+            ...block,
+            currentExerciseIndex: result.nextExerciseIndex,
+            completed: result.blockCompleted
+          };
+        });
+
+        set((state) => ({
+          activeWorkout: {
+            ...activeWorkout,
+            blocks: updatedBlocks,
+            currentBlockIndex: result.nextBlockIndex
+          },
+          sets: [...state.sets, loggedSet],
+          pendingSets: [...state.pendingSets, loggedSet]
+        }));
+
+        return result;
+      },
+
+      skipSet: () => {
         const { activeWorkout } = get();
         if (!activeWorkout) return;
-        const next = Math.min(activeWorkout.currentExerciseIndex + 1, activeWorkout.exercises.length - 1);
-        set({ activeWorkout: { ...activeWorkout, currentExerciseIndex: next } });
+        const ex = currentExercise(activeWorkout);
+        if (!ex) return;
+        const skipped: LoggedSet = {
+          id: `set-${Date.now()}`,
+          blockId: currentBlock(activeWorkout)?.id ?? '',
+          exerciseId: ex.id,
+          setNumber: getCompletedSetsForExercise(get(), ex.id).length + 1,
+          loadKg: 0,
+          reps: 0,
+          rir: 0,
+          holdSeconds: 0,
+          rom: 'full',
+          form: 'acceptable',
+          painLevel: 0,
+          restSeconds: 0,
+          completedAt: new Date().toISOString(),
+          pendingSync: true,
+          status: 'skipped'
+        };
+        get().completeSet(skipped);
       },
+
+      stopForPain: () => {
+        const { activeWorkout } = get();
+        if (!activeWorkout) return;
+        const ex = currentExercise(activeWorkout);
+        if (!ex) return;
+        const stopped: LoggedSet = {
+          id: `set-${Date.now()}`,
+          blockId: currentBlock(activeWorkout)?.id ?? '',
+          exerciseId: ex.id,
+          setNumber: getCompletedSetsForExercise(get(), ex.id).length + 1,
+          loadKg: 0,
+          reps: 0,
+          rir: 0,
+          holdSeconds: 0,
+          rom: 'full',
+          form: 'acceptable',
+          painLevel: 2,
+          restSeconds: 0,
+          completedAt: new Date().toISOString(),
+          pendingSync: true,
+          status: 'stopped_pain'
+        };
+        get().completeSet(stopped);
+        // Advance out of this exercise
+        set((state) => {
+          const aw = state.activeWorkout;
+          if (!aw) return state;
+          const block = currentBlock(aw);
+          if (!block) return state;
+          const nextExIndex = Math.min(block.currentExerciseIndex + 1, block.exercises.length - 1);
+          const nextBlockIndex = nextExIndex === block.currentExerciseIndex ? Math.min(aw.currentBlockIndex + 1, aw.blocks.length - 1) : aw.currentBlockIndex;
+          return {
+            activeWorkout: {
+              ...aw,
+              currentBlockIndex: nextBlockIndex,
+              blocks: aw.blocks.map((b, idx) =>
+                idx === aw.currentBlockIndex ? { ...b, currentExerciseIndex: nextExIndex } : b
+              )
+            }
+          };
+        });
+      },
+
+      finishWorkout: () => {
+        const { activeWorkout } = get();
+        if (!activeWorkout) return;
+        const finished: ActiveWorkoutState = {
+          ...activeWorkout,
+          status: 'completed',
+          completedAt: new Date().toISOString()
+        };
+        set((state) => ({
+          activeWorkout: finished,
+          completedWorkouts: [...state.completedWorkouts, finished]
+        }));
+      },
+
       tick: () => {
         const { activeWorkout } = get();
         if (!activeWorkout || activeWorkout.status !== 'active') return;
         set({ activeWorkout: { ...activeWorkout, elapsedSeconds: activeWorkout.elapsedSeconds + 1 } });
       },
-      finishWorkout: () => {
-        const { activeWorkout } = get();
-        if (!activeWorkout) return;
-        set({ activeWorkout: { ...activeWorkout, status: 'completed' } });
-      },
+
       setOffline: (offline) => set({ isOffline: offline }),
+      setSyncStatus: (status) => set({ syncStatus: status }),
+
       markSynced: (ids) => {
         set((state) => ({
-          pendingSets: state.pendingSets.filter((s) => !ids.includes(s.id))
+          pendingSets: state.pendingSets.filter((s) => !ids.includes(s.id)),
+          sets: state.sets.map((s) => (ids.includes(s.id) ? { ...s, pendingSync: false } : s)),
+          lastSyncAt: new Date().toISOString(),
+          syncStatus: 'idle'
         }));
+      },
+
+      addProgressionDecision: (decision) => {
+        set((state) => ({
+          progressionDecisions: [...state.progressionDecisions.filter((d) => d.exerciseId !== decision.exerciseId), decision]
+        }));
+      },
+
+      resetStore: () => {
+        set({
+          activeWorkout: null,
+          completedWorkouts: [],
+          sets: [],
+          pendingSets: [],
+          progressionDecisions: [],
+          isOffline: false,
+          syncStatus: 'idle'
+        });
       }
     }),
     {
-      name: 'gravitypath-workout',
+      name: 'gravitypath-workout-v2',
       storage: createJSONStorage(() => AsyncStorage)
     }
   )

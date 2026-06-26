@@ -1,10 +1,7 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "strict": true,
-    "paths": {
-      "@gravitypath/domain": ["../../packages/domain/src/index.ts"]
-    }
+    "strict": true
   },
   "include": ["**/*.ts", "**/*.tsx"]
 }

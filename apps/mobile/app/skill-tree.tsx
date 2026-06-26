@@ -3,41 +3,55 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors } from '../lib/theme';
 import { useI18n } from '../lib/i18n';
+import { useSkillStore } from '../stores/skillStore';
+import { SKILL_FAMILIES, getNodesByFamily, type SkillUnlockState } from '@gravitypath/domain';
 
-const SKILL_FAMILIES = [
-  { id: 'pull-up', name: 'Pull-up', nodes: ['Active Hang', 'Scapular Pull-up', 'Assisted Pull-up', 'Strict Pull-up', 'Weighted Pull-up'] },
-  { id: 'handstand', name: 'Handstand', nodes: ['Wall Plank', 'Chest-to-wall HS', 'Wall HSPU', 'Freestanding HSPU'] },
-  { id: 'front-lever', name: 'Front Lever', nodes: ['Active Hang', 'Tuck FL', 'Advanced Tuck', 'Full Front Lever'] },
-  { id: 'planche', name: 'Planche', nodes: ['Planche Lean', 'Tuck Planche', 'Straddle Planche', 'Full Planche'] },
-  { id: 'pistol', name: 'Pistol', nodes: ['Box Pistol', 'Full Pistol', 'Weighted Pistol'] }
-];
+const STATUS_COLORS: Record<SkillUnlockState['status'], string> = {
+  locked: '#64748b',
+  available: '#38bdf8',
+  unlocked: '#4ade80',
+  mastered: '#22c55e',
+  safety_hold: '#f87171'
+};
 
 export default function SkillTreeScreen() {
   const router = useRouter();
   const c = useColors();
-  const { t } = useI18n();
+  const { t, isRTL } = useI18n();
+  const unlockStates = useSkillStore((s) => s.getUnlockStates());
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={[styles.title, { color: c.text }]}>{t('skillTree')}</Text>
-        {SKILL_FAMILIES.map((family) => (
-          <View key={family.id} style={[styles.familyCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-            <Text style={[styles.familyName, { color: c.text }]}>{family.name}</Text>
-            <View style={styles.nodes}>
-              {family.nodes.map((node, idx) => {
-                const status = idx < 2 ? 'unlocked' : 'locked';
-                return (
-                  <View key={node} style={styles.nodeRow}>
-                    <View style={[styles.badge, { backgroundColor: status === 'unlocked' ? c.success : c.border }]} />
-                    <Text style={[styles.nodeName, { color: c.text }]}>{node}</Text>
-                    <Text style={[styles.status, { color: c.textMuted }]}>{t(status)}</Text>
-                  </View>
-                );
-              })}
+        {SKILL_FAMILIES.map((family) => {
+          const nodes = getNodesByFamily(family.id);
+          return (
+            <View key={family.id} style={[styles.familyCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+              <Text style={[styles.familyName, { color: c.text }]}>{isRTL && family.nameAr ? family.nameAr : family.name}</Text>
+              <View style={styles.nodes}>
+                {nodes.map((node) => {
+                  const state = unlockStates.get(node.id);
+                  const status = state?.status ?? 'locked';
+                  return (
+                    <View key={node.id} style={styles.nodeRow}>
+                      <View style={[styles.badge, { backgroundColor: STATUS_COLORS[status] }]} />
+                      <View style={styles.nodeText}>
+                        <Text style={[styles.nodeName, { color: c.text }]}>{isRTL && node.nameAr ? node.nameAr : node.name}</Text>
+                        <Text style={[styles.nodeMeta, { color: c.textMuted }]}>
+                          {node.difficulty} · {node.staticOrDynamic} · {status}
+                        </Text>
+                      </View>
+                      {status === 'locked' && state?.reason && (
+                        <Text style={[styles.reason, { color: c.textMuted }]}>?</Text>
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
             </View>
-          </View>
-        ))}
+          );
+        })}
         <Pressable onPress={() => router.back()} style={[styles.button, { backgroundColor: c.primary }]}>
           <Text style={styles.buttonText}>Back</Text>
         </Pressable>
@@ -55,8 +69,10 @@ const styles = StyleSheet.create({
   nodes: { gap: 10 },
   nodeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   badge: { width: 12, height: 12, borderRadius: 6 },
-  nodeName: { flex: 1, fontSize: 16 },
-  status: { fontSize: 14 },
+  nodeText: { flex: 1 },
+  nodeName: { fontSize: 15, fontWeight: '600' },
+  nodeMeta: { fontSize: 12, marginTop: 2 },
+  reason: { fontSize: 14, fontWeight: '700' },
   button: { paddingVertical: 16, borderRadius: 12, alignItems: 'center', marginTop: 12 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '700' }
 });
