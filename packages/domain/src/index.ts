@@ -1,4 +1,5 @@
 export * from './types.js';
+export * from './exercises/catalog.js';
 export * from './strength/progression.js';
 export * from './skills/progression.js';
 export * from './skills/unlock.js';
@@ -6,7 +7,11 @@ export * from './skills/graph.js';
 export * from './skills/skillSlots.js';
 export * from './volume/engine.js';
 export * from './replacement/engine.js';
+export * from './replacement/candidates.js';
+export * from './replacement/integration.js';
+export * from './readiness/engine.js';
 export * from './graduation/engine.js';
+export * from './graduation/contracts.js';
 export * from './time-budget/engine.js';
 export * from './deload/engine.js';
 export * from './set-addition/engine.js';

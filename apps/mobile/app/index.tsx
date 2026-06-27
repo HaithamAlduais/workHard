@@ -19,6 +19,7 @@ import {
   type SkillPriority
 } from '@gravitypath/domain';
 import { buildCoachMessage } from '../lib/coach';
+import { useHomeReadiness } from '../lib/readiness';
 import { APP_NAME } from '../lib/config';
 
 function familyName(familyId: string, isRTL: boolean): string {
@@ -103,12 +104,14 @@ export default function Dashboard() {
       priority,
       skillPrescriptions: skillPrescriptionsWithStatus,
       unlockStates,
-      startingNodes: calibration.skillStartingNodes,
+      startingNodes: calibration.skillStartingNodesByFamily,
       availableMinutes: 60
     });
   }, [nextDayId, priority, skillPrescriptions, initialized, getUnlockStates]);
 
   const nextDay = nextDayInfo?.day;
+
+  const homeReadiness = useHomeReadiness(nextDay?.targetDurationMinutes ?? 60);
 
   const primaryExercises = nextDay?.exercises.filter(
     (ex) => ex.orderClass === 'GYM_STRENGTH' || ex.orderClass === 'STRENGTH_SKILL' || ex.role === 'skill'
@@ -174,6 +177,20 @@ export default function Dashboard() {
             <Text style={[styles.blockText, { color: c.textMuted }]}>{blockWeekText(priority)}</Text>
           </View>
 
+          <View style={[styles.readinessCard, { backgroundColor: c.surfaceHighlight, borderColor: c.border }]}>
+            <Text style={[styles.cardTitle, { color: c.text }]}>Home Readiness</Text>
+            <Text style={[styles.cardBody, { color: c.text }]}>{homeReadiness.percent}%</Text>
+            {homeReadiness.topBlockers.length > 0 && (
+              <View style={styles.warningBox}>
+                {homeReadiness.topBlockers.map((blocker, idx) => (
+                  <Text key={idx} style={[styles.warningText, { color: c.warning }]}>
+                    ⚠ {blocker}
+                  </Text>
+                ))}
+              </View>
+            )}
+          </View>
+
           {primaryExercises.length > 0 && (
             <View style={styles.prescriptionList}>
               {primaryExercises.map((ex) => {
@@ -216,6 +233,8 @@ export default function Dashboard() {
           <MenuButton label={t('analytics')} onPress={() => router.push('/analytics')} c={c} />
           <MenuButton label={t('coach')} onPress={() => router.push('/coach')} c={c} />
           <MenuButton label={t('weeklyReview')} onPress={() => router.push('/weekly-review')} c={c} />
+          <MenuButton label="Home Readiness" testID="menu-home-readiness" onPress={() => router.push('/home-readiness')} c={c} />
+          <MenuButton label="Graduation" testID="menu-graduation" onPress={() => router.push('/graduation')} c={c} />
           <MenuButton label={t('settings')} onPress={() => router.push('/settings')} c={c} />
           <MenuButton label={t('onboarding')} onPress={() => router.push('/onboarding')} c={c} />
         </View>
@@ -235,9 +254,9 @@ export default function Dashboard() {
   );
 }
 
-function MenuButton({ label, onPress, c }: { label: string; onPress: () => void; c: any }) {
+function MenuButton({ label, testID, onPress, c }: { label: string; testID?: string; onPress: () => void; c: any }) {
   return (
-    <Pressable style={[styles.menuButton, { backgroundColor: c.surface, borderColor: c.border }]} onPress={onPress}>
+    <Pressable testID={testID} style={[styles.menuButton, { backgroundColor: c.surface, borderColor: c.border }]} onPress={onPress}>
       <Text style={[styles.menuText, { color: c.text }]}>{label}</Text>
     </Pressable>
   );
@@ -262,6 +281,7 @@ const styles = StyleSheet.create({
   priorityBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
   priorityBadgeText: { color: '#fff', fontWeight: '700', fontSize: 12 },
   blockText: { fontSize: 12, fontWeight: '600' },
+  readinessCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginTop: 12, marginBottom: 4 },
   prescriptionList: { marginBottom: 16 },
   prescriptionItem: { fontSize: 14, marginBottom: 4 },
   button: { paddingVertical: 14, borderRadius: 12, alignItems: 'center' },

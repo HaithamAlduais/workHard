@@ -25,7 +25,7 @@ const DEFAULT_PRIORITY: SkillPriority = {
   goalTemplate: 'advanced_calisthenics',
   blockStart: null,
   blockEnd: null,
-  blockLengthWeeks: 4
+  blockLengthWeeks: 12
 };
 
 function addUnique(list: string[], value: string): string[] {

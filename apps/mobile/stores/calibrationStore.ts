@@ -11,12 +11,12 @@ export interface CalibrationProfile {
 export interface CalibrationState {
   profile: CalibrationProfile;
   exerciseLoads: Record<string, number>;
-  skillStartingNodes: Record<string, string>;
+  skillStartingNodesByFamily: Record<string, string>;
   completed: boolean;
   // actions
   setProfile: (profile: Partial<CalibrationProfile>) => void;
   setExerciseLoad: (exerciseId: string, loadKg: number) => void;
-  setSkillStartingNode: (skillNodeId: string, startingNodeId: string) => void;
+  setSkillStartingNodeByFamily: (familyId: string, nodeId: string) => void;
   completeCalibration: () => void;
   getCalibrationLoad: (exerciseId: string) => number | undefined;
 }
@@ -42,7 +42,7 @@ export const useCalibrationStore = create<CalibrationState>()(
         primarySkillFamilyId: ''
       },
       exerciseLoads: {},
-      skillStartingNodes: {},
+      skillStartingNodesByFamily: {},
       completed: false,
 
       setProfile: (profile) => {
@@ -57,9 +57,9 @@ export const useCalibrationStore = create<CalibrationState>()(
         }));
       },
 
-      setSkillStartingNode: (skillNodeId, startingNodeId) => {
+      setSkillStartingNodeByFamily: (familyId, nodeId) => {
         set((state) => ({
-          skillStartingNodes: { ...state.skillStartingNodes, [skillNodeId]: startingNodeId }
+          skillStartingNodesByFamily: { ...state.skillStartingNodesByFamily, [familyId]: nodeId }
         }));
       },
 

@@ -57,7 +57,9 @@ export function buildCoachMessages({
   nextScheduledDate,
   trainingDays,
   priority,
-  skillPrescriptions
+  skillPrescriptions,
+  readiness,
+  replacementDecisions
 }: {
   progressionDecisions: ProgressionDecision[];
   pendingSets: number;
@@ -65,6 +67,8 @@ export function buildCoachMessages({
   trainingDays: number[];
   priority: SkillPriority;
   skillPrescriptions: Record<string, SkillPrescriptionWithMeta>;
+  readiness?: Map<string, { pattern: string; equipmentReady: boolean; performanceReady: boolean; volumeReady: boolean; timeReady: boolean; painFree: boolean; blockers: string[] }>;
+  replacementDecisions?: Map<string, { decision: { allowed: boolean; percentage: number; reason: string; conditions: string[] }; calisthenicsNode: { name: string } }>;
 }): CoachMessage[] {
   const messages: CoachMessage[] = [];
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -121,6 +125,53 @@ export function buildCoachMessages({
     body: `Next session: ${new Date(nextScheduledDate).toLocaleDateString()} (${trainingDays
       .map((d) => dayNames[d])
       .join(', ')}).`,
+    tone: 'neutral'
+  });
+
+  if (readiness) {
+    const notReady = Array.from(readiness.values()).filter(
+      (r) => !r.equipmentReady || !r.performanceReady || !r.volumeReady || !r.timeReady || !r.painFree
+    );
+    if (notReady.length > 0) {
+      const top = notReady.slice(0, 2);
+      messages.push({
+        title: 'Home Readiness',
+        body: `${notReady.length} movement pattern(s) are not home-ready. ${top
+          .map((r) => `${r.pattern}: ${r.blockers[0] ?? 'blocked'}`)
+          .join('; ')}.`,
+        tone: 'warning'
+      });
+    } else {
+      messages.push({
+        title: 'Home Readiness',
+        body: 'All movement patterns are home-ready. You can maintain progress without the gym.',
+        tone: 'positive'
+      });
+    }
+  }
+
+  if (replacementDecisions && replacementDecisions.size > 0) {
+    for (const [exerciseId, result] of replacementDecisions.entries()) {
+      const { decision, calisthenicsNode } = result;
+      if (decision.allowed) {
+        messages.push({
+          title: `Replacement available: ${exerciseId}`,
+          body: `${calisthenicsNode.name} is ready to replace ${decision.percentage}% of ${exerciseId.replace(/-/g, ' ')}. ${decision.reason}`,
+          tone: 'positive'
+        });
+      } else {
+        messages.push({
+          title: `Replacement blocked: ${exerciseId}`,
+          body: `${exerciseId.replace(/-/g, ' ')} cannot be replaced yet. ${decision.reason}`,
+          tone: 'warning'
+        });
+      }
+    }
+  }
+
+  messages.push({
+    title: 'Power Work',
+    body: 'Power exercises are not automatically replaced with calisthenics to preserve velocity and landing quality. Keep them in the program until you have a safe home power option.',
     tone: 'neutral'
   });
 

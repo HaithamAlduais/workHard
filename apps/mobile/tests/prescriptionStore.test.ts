@@ -26,11 +26,11 @@ function makeCalibration(overrides: Partial<CalibrationState> = {}): Calibration
   return {
     profile: { name: '', unitSystem: 'metric', primarySkillFamilyId: 'handstand' },
     exerciseLoads: {},
-    skillStartingNodes: {},
+    skillStartingNodesByFamily: {},
     completed: false,
     setProfile: () => {},
     setExerciseLoad: () => {},
-    setSkillStartingNode: () => {},
+    setSkillStartingNodeByFamily: () => {},
     completeCalibration: () => {},
     getCalibrationLoad: (exerciseId: string) => {
       const defaults: Record<string, number> = {

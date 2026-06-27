@@ -49,6 +49,8 @@ export interface GenerateSkillSlotsOptions {
   painFlags?: { elbows?: boolean; shoulders?: boolean; lowerBack?: boolean };
 }
 
+/** startingNodes is keyed by familyId -> nodeId. */
+
 const DAY_PRIMARY_CATEGORIES: Record<string, string[]> = {
   day1: ['handstand', 'planche', 'ring-push-up'],
   day2: ['muscle-up', 'pull-up'],
@@ -247,18 +249,16 @@ function findTrainingNodeForFamily(
   );
 
   // If the user explicitly selected a starting node via calibration, prefer it.
-  const explicitStartingNodeId = startingNodes
-    ? Object.entries(startingNodes)
-        .filter(([nodeId, startId]) => nodeId === startId)
-        .map(([nodeId]) => nodeId)
-        .find((nodeId) => familyPrescriptions.some((p) => p.skill_node_id === nodeId))
-    : undefined;
+  const explicitStartingNodeId = startingNodes?.[familyId];
 
   if (explicitStartingNodeId) {
     const prescription = familyPrescriptions.find((p) => p.skill_node_id === explicitStartingNodeId);
-    const node = prescription ? getSkillNode(prescription.currentNode) : undefined;
-    if (prescription && node && prescription.status !== 'inactive' && prescription.status !== 'safety_hold') {
+    const node = prescription ? getSkillNode(prescription.currentNode) : getSkillNode(explicitStartingNodeId);
+    if (node && prescription && prescription.status !== 'inactive' && prescription.status !== 'safety_hold') {
       return { node, status: slotStatusFromPrescription(prescription.status), prescription };
+    }
+    if (node) {
+      return { node, status: 'maintenance' };
     }
   }
 

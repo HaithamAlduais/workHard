@@ -37,11 +37,23 @@ export type SkillPrescriptionWithMeta = SkillPrescription & {
   lastDecisionId?: string | null;
 };
 
+export interface ReplacementRecord {
+  id: string;
+  exerciseId: string;
+  calisthenicsNodeId: string;
+  percentage: number;
+  reason: string;
+  approvedAt: string;
+  status: 'active' | 'rejected' | 'superseded';
+}
+
 interface PrescriptionState {
   exercisePrescriptions: Record<string, ExercisePrescriptionWithMeta>;
   skillPrescriptions: Record<string, SkillPrescriptionWithMeta>;
   pendingExercisePrescriptions: Record<string, boolean>;
   pendingSkillPrescriptions: Record<string, boolean>;
+  replacementHistory: ReplacementRecord[];
+  activeReplacements: Record<string, ReplacementRecord>;
   initialized: boolean;
   // actions
   initializePrescriptions: (userId: string, calibration?: CalibrationState) => void;
@@ -54,6 +66,9 @@ interface PrescriptionState {
   markSkillPrescriptionsSynced: (nodeIds: string[]) => void;
   applyPrescriptionsToWorkout: (workout: ActiveWorkoutState) => ActiveWorkoutState;
   recomputeSkillStatuses: () => void;
+  approveReplacement: (record: ReplacementRecord) => void;
+  rejectReplacement: (exerciseId: string) => void;
+  supersedeReplacement: (exerciseId: string) => void;
 }
 
 const GYM_DECISION_TYPES = new Set(['ADD_REPS', 'ADD_LOAD', 'REDUCE_LOAD', 'MAINTAIN_LOAD', 'HOLD_FOR_SAFETY']);
@@ -79,6 +94,8 @@ export const usePrescriptionStore = create<PrescriptionState>()(
       skillPrescriptions: {},
       pendingExercisePrescriptions: {},
       pendingSkillPrescriptions: {},
+      replacementHistory: [],
+      activeReplacements: {},
       initialized: false,
 
       initializePrescriptions: (userId, calibration) => {
@@ -123,7 +140,7 @@ export const usePrescriptionStore = create<PrescriptionState>()(
 
           for (const node of SKILL_NODES) {
             if (skillPrescriptions[node.id]) continue;
-            const startingNodeId = calibration?.skillStartingNodes[node.id];
+            const startingNodeId = calibration?.skillStartingNodesByFamily[node.familyId];
             const prescription = createSkillPrescription({
               userId,
               node,
@@ -356,6 +373,46 @@ export const usePrescriptionStore = create<PrescriptionState>()(
             }
           }
           return { ...state, skillPrescriptions };
+        });
+      },
+
+      approveReplacement: (record) => {
+        set((state) => {
+          const activeReplacements = { ...state.activeReplacements, [record.exerciseId]: record };
+          const replacementHistory = [...state.replacementHistory];
+          // Mark any previous active record for the same exercise as superseded.
+          const previous = state.activeReplacements[record.exerciseId];
+          if (previous) {
+            const idx = replacementHistory.findIndex((r) => r.id === previous.id);
+            if (idx >= 0) {
+              replacementHistory[idx] = { ...previous, status: 'superseded' };
+            }
+          }
+          replacementHistory.push(record);
+          return { ...state, activeReplacements, replacementHistory };
+        });
+      },
+
+      rejectReplacement: (exerciseId) => {
+        set((state) => {
+          const activeReplacements = { ...state.activeReplacements };
+          delete activeReplacements[exerciseId];
+          return { ...state, activeReplacements };
+        });
+      },
+
+      supersedeReplacement: (exerciseId) => {
+        set((state) => {
+          const activeReplacements = { ...state.activeReplacements };
+          const previous = activeReplacements[exerciseId];
+          delete activeReplacements[exerciseId];
+          if (!previous) return { ...state, activeReplacements };
+          const replacementHistory = [...state.replacementHistory];
+          const idx = replacementHistory.findIndex((r) => r.id === previous.id);
+          if (idx >= 0) {
+            replacementHistory[idx] = { ...previous, status: 'superseded' };
+          }
+          return { ...state, activeReplacements, replacementHistory };
         });
       },
 

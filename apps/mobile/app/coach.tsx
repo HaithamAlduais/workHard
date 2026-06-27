@@ -7,8 +7,18 @@ import { useWorkoutStore } from '../stores/workoutStore';
 import { useScheduleStore } from '../stores/scheduleStore';
 import { usePrescriptionStore } from '../stores/prescriptionStore';
 import { useSkillPriorityStore } from '../stores/skillPriorityStore';
+import { useSkillStore } from '../stores/skillStore';
+import { useEquipmentStore } from '../stores/equipmentStore';
+import { useCalibrationStore } from '../stores/calibrationStore';
 import { buildCoachMessages, buildCoachMessage } from '../lib/coach';
-import { SKILL_FAMILIES, checkSkillPriorityConflicts } from '@gravitypath/domain';
+import { useHomeReadiness, aggregateWeeklyVolume, getPainFlaggedExerciseIds } from '../lib/readiness';
+import {
+  getHybridProgramDay,
+  updateSkillPrescriptionStatuses,
+  evaluateReplacementsForDay,
+  SKILL_FAMILIES,
+  checkSkillPriorityConflicts
+} from '@gravitypath/domain';
 
 const TONE_COLORS: Record<ReturnType<typeof buildCoachMessages>[number]['tone'], string> = {
   neutral: '#64748b',
@@ -21,10 +31,51 @@ export default function CoachScreen() {
   const router = useRouter();
   const c = useColors();
   const { t, isRTL } = useI18n();
-  const { progressionDecisions, pendingSets } = useWorkoutStore();
-  const { nextScheduledDate, trainingDays } = useScheduleStore();
+  const { progressionDecisions, pendingSets, completedWorkouts, sets } = useWorkoutStore();
+  const { nextScheduledDate, trainingDays, getNextDayId } = useScheduleStore();
   const { exercisePrescriptions, skillPrescriptions } = usePrescriptionStore();
   const priority = useSkillPriorityStore();
+  const equipment = useEquipmentStore();
+  const calibration = useCalibrationStore();
+  const { readiness } = useHomeReadiness();
+  const skillAttempts = useSkillStore((s) => s.attempts);
+  const getUnlockStates = useSkillStore((s) => s.getUnlockStates);
+
+  const nextDayId = getNextDayId();
+  const unlockStates = getUnlockStates();
+  const skillPrescriptionsWithStatus = { ...skillPrescriptions };
+  const statuses = updateSkillPrescriptionStatuses(priority, skillPrescriptionsWithStatus, unlockStates);
+  for (const [nodeId, status] of Object.entries(statuses)) {
+    const existing = skillPrescriptionsWithStatus[nodeId];
+    if (existing) skillPrescriptionsWithStatus[nodeId] = { ...existing, status };
+  }
+  const { day } = getHybridProgramDay(nextDayId, {
+    priority,
+    skillPrescriptions: skillPrescriptionsWithStatus,
+    unlockStates,
+    startingNodes: calibration.skillStartingNodesByFamily,
+    availableMinutes: 60
+  });
+  const weeklyVolumeByMuscle: Record<string, { muscleId: string; directSets: number }> = {};
+  for (const [muscleId, entry] of Object.entries(aggregateWeeklyVolume(completedWorkouts, sets))) {
+    weeklyVolumeByMuscle[muscleId] = { muscleId, directSets: entry.directSets };
+  }
+  const painFlagged = getPainFlaggedExerciseIds(completedWorkouts, sets);
+  const replacementCandidates = evaluateReplacementsForDay(day, {
+    userId: 'local',
+    equipmentOwned: equipment.getOwnedList(),
+    unlockStates,
+    skillAttempts: skillAttempts.map((a) => ({
+      ...a,
+      completedAt: new Date(a.completedAt),
+      userId: 'local',
+      painLevel: a.painLevel as 0 | 1 | 2 | 3,
+      selfReported: !a.videoVerified && !a.coachVerified
+    })),
+    weeklyVolumeByMuscle,
+    sessionTimeMinutes: day.targetDurationMinutes,
+    painFree: painFlagged.length === 0
+  });
 
   const messages = buildCoachMessages({
     progressionDecisions,
@@ -32,7 +83,9 @@ export default function CoachScreen() {
     nextScheduledDate,
     trainingDays,
     priority,
-    skillPrescriptions
+    skillPrescriptions,
+    readiness,
+    replacementDecisions: replacementCandidates.decisions
   });
 
   const warnings = checkSkillPriorityConflicts(priority, skillPrescriptions);

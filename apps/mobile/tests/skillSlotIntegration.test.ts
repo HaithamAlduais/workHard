@@ -29,7 +29,7 @@ function resetStores() {
     goalTemplate: 'advanced_calisthenics',
     blockStart: null,
     blockEnd: null,
-    blockLengthWeeks: 4,
+    blockLengthWeeks: 12,
     initialized: false
   });
   useSkillStore.setState({ attempts: [], unlockOverrides: {} });

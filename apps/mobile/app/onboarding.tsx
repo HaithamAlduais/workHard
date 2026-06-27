@@ -8,12 +8,16 @@ import { useScheduleStore } from '../stores/scheduleStore';
 import { useCalibrationStore } from '../stores/calibrationStore';
 import { usePrescriptionStore } from '../stores/prescriptionStore';
 import { useSkillPriorityStore } from '../stores/skillPriorityStore';
+import { useEquipmentStore, EQUIPMENT_IDS } from '../stores/equipmentStore';
+import { useGraduationStore } from '../stores/graduationStore';
 import {
   SKILL_FAMILIES,
   SKILL_NODES,
   validateSkillPriority,
   checkSkillPriorityConflicts,
-  type SkillPriority
+  createGraduationContract,
+  type SkillPriority,
+  type GraduationTemplate
 } from '@gravitypath/domain';
 
 const EXERCISE_CALIBRATION_IDS = [
@@ -33,6 +37,19 @@ const GOAL_TEMPLATES: { id: SkillPriority['goalTemplate']; label: string }[] = [
   { id: 'elite_mastery', label: 'Elite Mastery' }
 ];
 
+const GRADUATION_TEMPLATES: { id: GraduationTemplate; label: string }[] = [
+  { id: 'PRACTICAL_HOME_INDEPENDENCE', label: 'Practical Home' },
+  { id: 'ADVANCED_CALISTHENICS_GRADUATION', label: 'Advanced Calisthenics' },
+  { id: 'ELITE_MASTERY', label: 'Elite Mastery' }
+];
+
+function equipmentLabel(id: string): string {
+  return id
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
 export default function Onboarding() {
   const router = useRouter();
   const c = useColors();
@@ -40,12 +57,17 @@ export default function Onboarding() {
   const { setTrainingDays } = useScheduleStore();
   const calibration = useCalibrationStore();
   const skillPriority = useSkillPriorityStore();
+  const equipment = useEquipmentStore();
+  const graduation = useGraduationStore();
 
   const [name, setName] = useState(calibration.profile.name);
   const [unit, setUnit] = useState<'metric' | 'imperial'>(calibration.profile.unitSystem);
   const [days, setDays] = useState<number[]>([1, 3, 5]);
   const [startingNodeId, setStartingNodeId] = useState<string | null>(
-    calibration.skillStartingNodes[skillPriority.primarySkillFamilyId] || null
+    calibration.skillStartingNodesByFamily[skillPriority.primarySkillFamilyId] || null
+  );
+  const [selectedGraduation, setSelectedGraduation] = useState<GraduationTemplate | null>(
+    graduation.selectedTemplate
   );
 
   const skillNodes = SKILL_NODES.filter(
@@ -74,18 +96,22 @@ export default function Onboarding() {
     const selected = nodes[nodes.length - 1]?.id ?? null;
     setStartingNodeId(selected);
     if (selected) {
-      calibration.setSkillStartingNode(selected, selected);
+      calibration.setSkillStartingNodeByFamily(familyId, selected);
     }
   };
 
   const updateStartingNode = (nodeId: string) => {
     setStartingNodeId(nodeId);
-    calibration.setSkillStartingNode(nodeId, nodeId);
+    calibration.setSkillStartingNodeByFamily(skillPriority.primarySkillFamilyId, nodeId);
   };
 
   const updateLoad = (exerciseId: string, value: string) => {
     const num = parseFloat(value);
     calibration.setExerciseLoad(exerciseId, Number.isNaN(num) ? 0 : num);
+  };
+
+  const toggleEquipment = (id: string) => {
+    equipment.toggleOwned(id);
   };
 
   const save = () => {
@@ -96,7 +122,11 @@ export default function Onboarding() {
       primarySkillFamilyId: skillPriority.primarySkillFamilyId
     });
     if (startingNodeId) {
-      calibration.setSkillStartingNode(startingNodeId, startingNodeId);
+      calibration.setSkillStartingNodeByFamily(skillPriority.primarySkillFamilyId, startingNodeId);
+    }
+    if (selectedGraduation) {
+      graduation.selectTemplate(selectedGraduation);
+      graduation.setContract(createGraduationContract(selectedGraduation, 'local'));
     }
     calibration.completeCalibration();
     const freshCalibration = useCalibrationStore.getState();
@@ -262,6 +292,50 @@ export default function Onboarding() {
             ))}
           </View>
         )}
+
+        <View style={styles.field}>
+          <Text style={[styles.label, { color: c.text }]}>Equipment Inventory</Text>
+          <Text style={{ color: c.textMuted, marginBottom: 8 }}>Mark what you have access to at home.</Text>
+          <View style={styles.row}>
+            {EQUIPMENT_IDS.map((id) => (
+              <Pressable
+                key={id}
+                testID={`equipment-${id}`}
+                style={[
+                  styles.chip,
+                  equipment.owned[id] && { backgroundColor: c.primary }
+                ]}
+                onPress={() => toggleEquipment(id)}
+              >
+                <Text style={{ color: equipment.owned[id] ? '#fff' : c.text, fontSize: 12 }}>
+                  {equipmentLabel(id)}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.field}>
+          <Text style={[styles.label, { color: c.text }]}>Graduation Contract</Text>
+          <Text style={{ color: c.textMuted, marginBottom: 8 }}>Choose your long-term goal.</Text>
+          <View style={styles.row}>
+            {GRADUATION_TEMPLATES.map((template) => (
+              <Pressable
+                key={template.id}
+                testID={`graduation-${template.id}`}
+                style={[
+                  styles.chip,
+                  selectedGraduation === template.id && { backgroundColor: c.primary }
+                ]}
+                onPress={() => setSelectedGraduation(template.id)}
+              >
+                <Text style={{ color: selectedGraduation === template.id ? '#fff' : c.text, fontSize: 12 }}>
+                  {template.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
 
         <View style={styles.field}>
           <Text style={[styles.label, { color: c.text }]}>Exercise Calibration</Text>

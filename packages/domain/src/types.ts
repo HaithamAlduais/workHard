@@ -330,6 +330,8 @@ export interface MovementPatternReadiness {
   timeReady: boolean;
   painFree: boolean;
   supportingExerciseOrSkill: string;
+  blockers: string[];
+  recommendation: string;
 }
 
 export type GraduationTemplate = 'PRACTICAL_HOME_INDEPENDENCE' | 'ADVANCED_CALISTHENICS_GRADUATION' | 'ELITE_MASTERY';

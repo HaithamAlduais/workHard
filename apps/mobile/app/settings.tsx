@@ -8,13 +8,35 @@ import { useAuth } from '../lib/auth';
 import { useScheduleStore } from '../stores/scheduleStore';
 import { useSkillPriorityStore } from '../stores/skillPriorityStore';
 import { usePrescriptionStore } from '../stores/prescriptionStore';
-import { SKILL_FAMILIES, validateSkillPriority, checkSkillPriorityConflicts, type SkillPriority } from '@gravitypath/domain';
+import { useEquipmentStore, EQUIPMENT_IDS } from '../stores/equipmentStore';
+import { useGraduationStore } from '../stores/graduationStore';
+import {
+  SKILL_FAMILIES,
+  validateSkillPriority,
+  checkSkillPriorityConflicts,
+  createGraduationContract,
+  type SkillPriority,
+  type GraduationTemplate
+} from '@gravitypath/domain';
 
 const GOAL_TEMPLATES: { id: SkillPriority['goalTemplate']; label: string }[] = [
   { id: 'practical_home', label: 'Practical Home' },
   { id: 'advanced_calisthenics', label: 'Advanced Calisthenics' },
   { id: 'elite_mastery', label: 'Elite Mastery' }
 ];
+
+const GRADUATION_TEMPLATES: { id: GraduationTemplate; label: string }[] = [
+  { id: 'PRACTICAL_HOME_INDEPENDENCE', label: 'Practical Home' },
+  { id: 'ADVANCED_CALISTHENICS_GRADUATION', label: 'Advanced Calisthenics' },
+  { id: 'ELITE_MASTERY', label: 'Elite Mastery' }
+];
+
+function equipmentLabel(id: string): string {
+  return id
+    .split('-')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -23,8 +45,10 @@ export default function SettingsScreen() {
   const { user } = useAuth();
   const { trainingDays, setTrainingDays } = useScheduleStore();
   const skillPriority = useSkillPriorityStore();
+  const equipment = useEquipmentStore();
+  const graduation = useGraduationStore();
   const [selectedDays, setSelectedDays] = useState<number[]>(trainingDays);
-  const [blockLength, setBlockLength] = useState(String(skillPriority.blockLengthWeeks || 4));
+  const [blockLength, setBlockLength] = useState(String(skillPriority.blockLengthWeeks || 12));
 
   const switchLocale = (l: Locale) => setLocale(l);
 
@@ -164,7 +188,7 @@ export default function SettingsScreen() {
                 onChangeText={setBlockLength}
                 onBlur={saveBlockLength}
               />
-              <Pressable style={[styles.button, { backgroundColor: c.primary }]} onPress={() => skillPriority.startNewBlock(parseInt(blockLength, 10) || 4)}>
+              <Pressable style={[styles.button, { backgroundColor: c.primary }]} onPress={() => skillPriority.startNewBlock(parseInt(blockLength, 10) || 12)}>
                 <Text style={styles.buttonText}>Start New Block</Text>
               </Pressable>
             </View>
@@ -195,6 +219,62 @@ export default function SettingsScreen() {
             onPress={() => usePrescriptionStore.getState().recomputeSkillStatuses()}
           >
             <Text style={styles.buttonText}>Apply Priorities</Text>
+          </Pressable>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+          <Text style={[styles.cardTitle, { color: c.text }]}>Equipment Inventory</Text>
+          <Text style={{ color: c.textMuted, marginBottom: 12 }}>Toggle the equipment you have at home.</Text>
+          <View style={styles.row}>
+            {EQUIPMENT_IDS.map((id) => (
+              <Pressable
+                key={id}
+                testID={`settings-equipment-${id}`}
+                style={[styles.chip, equipment.owned[id] && { backgroundColor: c.primary }]}
+                onPress={() => equipment.toggleOwned(id)}
+              >
+                <Text style={{ color: equipment.owned[id] ? '#fff' : c.text, fontSize: 12 }}>
+                  {equipmentLabel(id)}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+          <Text style={[styles.cardTitle, { color: c.text }]}>Graduation Contract</Text>
+          <Text style={{ color: c.textMuted, marginBottom: 12 }}>Choose or update your long-term contract.</Text>
+          <View style={styles.row}>
+            {GRADUATION_TEMPLATES.map((template) => (
+              <Pressable
+                key={template.id}
+                testID={`settings-graduation-${template.id}`}
+                style={[
+                  styles.chip,
+                  graduation.selectedTemplate === template.id && { backgroundColor: c.primary }
+                ]}
+                onPress={() => graduation.selectTemplate(template.id)}
+              >
+                <Text
+                  style={{
+                    color: graduation.selectedTemplate === template.id ? '#fff' : c.text,
+                    fontSize: 12
+                  }}
+                >
+                  {template.label}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable
+            style={[styles.button, { backgroundColor: c.primary }]}
+            onPress={() => {
+              if (graduation.selectedTemplate) {
+                graduation.setContract(createGraduationContract(graduation.selectedTemplate, 'local'));
+              }
+            }}
+          >
+            <Text style={styles.buttonText}>Apply Contract</Text>
           </Pressable>
         </View>
 
