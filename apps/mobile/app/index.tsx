@@ -11,6 +11,7 @@ import { useCalibrationStore } from '../stores/calibrationStore';
 import { usePrescriptionStore } from '../stores/prescriptionStore';
 import { useSkillPriorityStore } from '../stores/skillPriorityStore';
 import { useSkillStore } from '../stores/skillStore';
+import { useProjectionStore } from '../stores/projectionStore';
 import {
   getHybridProgramDay,
   updateSkillPrescriptionStatuses,
@@ -55,6 +56,7 @@ export default function Dashboard() {
     recomputeSkillStatuses
   } = usePrescriptionStore();
   const priority = useSkillPriorityStore();
+  const projection = useProjectionStore();
   const skillAttempts = useSkillStore((s) => s.attempts);
   const getUnlockStates = useSkillStore((s) => s.getUnlockStates);
 
@@ -214,6 +216,31 @@ export default function Dashboard() {
           </Pressable>
         </View>
 
+        {projection.projection && (
+          <View
+            testID="projection-summary-card"
+            style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
+          >
+            <Text style={[styles.cardTitle, { color: c.text }]}>{t('projection')}</Text>
+            <Text style={[styles.cardBody, { color: c.text }]}>
+              {t('currentProjectedWeek')} {projection.projection.dashboardSummary.currentProjectedWeek} /{' '}
+              {projection.projection.dashboardSummary.totalWeeks}
+            </Text>
+            <Text style={[styles.cardMeta, { color: c.textMuted }]}>
+              {t('nextProgression')}: {projection.projection.dashboardSummary.nextProgression}
+            </Text>
+            <Text style={[styles.cardMeta, { color: c.textMuted }]}>
+              {t('primarySkillTarget')}: {projection.projection.dashboardSummary.primarySkillTarget}
+            </Text>
+            {projection.projection.dashboardSummary.deloadWarning && (
+              <Text style={[styles.warningText, { color: c.warning }]}>
+                ⚠ {projection.projection.dashboardSummary.deloadWarning}
+              </Text>
+            )}
+            <Text style={[styles.footerText, { color: c.warning, marginTop: 8 }]}>{t('actualMayDiffer')}</Text>
+          </View>
+        )}
+
         {latestDecision && (
           <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
             <Text style={[styles.cardTitle, { color: c.text }]}>{t('coach')}</Text>
@@ -235,6 +262,7 @@ export default function Dashboard() {
           <MenuButton label={t('weeklyReview')} onPress={() => router.push('/weekly-review')} c={c} />
           <MenuButton label="Home Readiness" testID="menu-home-readiness" onPress={() => router.push('/home-readiness')} c={c} />
           <MenuButton label="Graduation" testID="menu-graduation" onPress={() => router.push('/graduation')} c={c} />
+          <MenuButton label={t('projectionPlanner')} testID="menu-projection-planner" onPress={() => router.push('/projection-planner')} c={c} />
           <MenuButton label={t('settings')} onPress={() => router.push('/settings')} c={c} />
           <MenuButton label={t('onboarding')} onPress={() => router.push('/onboarding')} c={c} />
         </View>

@@ -27,6 +27,7 @@ export default function RootLayout() {
               <Stack.Screen name="analytics" />
               <Stack.Screen name="coach" />
               <Stack.Screen name="weekly-review" />
+              <Stack.Screen name="projection-planner" />
               <Stack.Screen name="settings" />
             </Stack>
             <StatusBar style="auto" />

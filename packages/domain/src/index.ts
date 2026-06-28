@@ -20,3 +20,4 @@ export * from './workout/state.js';
 export * from './programs/curriculum.js';
 export * from './prescriptions/types.js';
 export * from './prescriptions/engine.js';
+export * from './projection/engine.js';

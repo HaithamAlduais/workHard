@@ -19,3 +19,10 @@
 - `packages/domain` builds to `dist/`. Run `npm run build` there after adding new exports so `apps/mobile` typechecks against the published package output.
 - `npm run typecheck` and `npm run test` at the repo root cover both workspaces.
 - `npm run validate:backend` requires the local Supabase stack to be running.
+
+## Projection Planner
+
+- Domain engine: `packages/domain/src/projection/engine.ts`.
+- Stores/UI: `apps/mobile/stores/projectionStore.ts` and `apps/mobile/app/projection-planner.tsx`.
+- Generates a deterministic, editable forecast of gym loads and skill levels. It does **not** overwrite actual prescriptions unless the user explicitly confirms.
+- After changing `packages/domain`, rebuild with `cd packages/domain && npm run build` so `apps/mobile` typechecks against the published package output.
