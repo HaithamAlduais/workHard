@@ -258,7 +258,9 @@ export function workoutExercisesFromProgramDay(day: ProgramDay): WorkoutExercise
     targetRepsMax: e.targetRepsMax,
     targetLoadKg: e.targetLoadKg,
     targetHoldSeconds: e.targetHoldSeconds,
-    restSeconds: e.restSeconds
+    restSeconds: e.restSeconds,
+    replacementPercentage: e.replacementPercentage,
+    isReplacement: e.isReplacement
   }));
 }
 

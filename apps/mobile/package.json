@@ -11,6 +11,7 @@
     "e2e:web": "playwright test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "validate:backend": "node scripts/validate-backend-roundtrip.mjs",
     "lint": "eslint . --ext .ts,.tsx"
   },
   "dependencies": {

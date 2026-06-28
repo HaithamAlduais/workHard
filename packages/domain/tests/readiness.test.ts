@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   evaluateMovementPatternReadiness,
+  evaluateEquipmentRequirement,
   getHomeReadinessPercent,
   getTopBlockers
 } from '../src/index.js';
@@ -45,6 +46,51 @@ function makeInput(overrides: Partial<ReadinessInput> = {}): ReadinessInput {
     ...overrides
   };
 }
+
+describe('Equipment requirement evaluation', () => {
+  it('requires all items for allOf', () => {
+    const req = { allOf: ['pull-up-bar'] };
+    expect(evaluateEquipmentRequirement([], req).satisfied).toBe(false);
+    expect(evaluateEquipmentRequirement(['pull-up-bar'], req).satisfied).toBe(true);
+  });
+
+  it('requires at least one item for anyOf', () => {
+    const req = { anyOf: ['nordic-anchor', 'sliders', 'rings'] };
+    expect(evaluateEquipmentRequirement([], req).satisfied).toBe(false);
+    expect(evaluateEquipmentRequirement(['sliders'], req).satisfied).toBe(true);
+  });
+
+  it('supports grouped alternatives', () => {
+    const req = {
+      groups: [
+        { allOf: ['pull-up-bar', 'dip-belt', 'plates'] },
+        { allOf: ['pull-up-bar', 'weight-vest'] }
+      ]
+    };
+    expect(evaluateEquipmentRequirement(['pull-up-bar'], req).satisfied).toBe(false);
+    expect(evaluateEquipmentRequirement(['pull-up-bar', 'dip-belt', 'plates'], req).satisfied).toBe(true);
+    expect(evaluateEquipmentRequirement(['pull-up-bar', 'weight-vest'], req).satisfied).toBe(true);
+  });
+
+  it('requires allOf rings plus anyOf load for weighted ring push-up', () => {
+    const req = { allOf: ['rings'], anyOf: ['weight-vest', 'backpack', 'plates'] };
+    expect(evaluateEquipmentRequirement(['rings'], req).satisfied).toBe(false);
+    expect(evaluateEquipmentRequirement(['weight-vest'], req).satisfied).toBe(false);
+    expect(evaluateEquipmentRequirement(['rings', 'backpack'], req).satisfied).toBe(true);
+  });
+
+  it('supports hip hinge anyOf loadable implements', () => {
+    const req = { anyOf: ['barbell', 'dumbbells', 'backpack', 'kettlebell'] };
+    expect(evaluateEquipmentRequirement([], req).satisfied).toBe(false);
+    expect(evaluateEquipmentRequirement(['dumbbells'], req).satisfied).toBe(true);
+  });
+
+  it('supports upper power anyOf space or implement', () => {
+    const req = { anyOf: ['medicine-ball', 'park', 'open-space'] };
+    expect(evaluateEquipmentRequirement(['park'], req).satisfied).toBe(true);
+    expect(evaluateEquipmentRequirement(['open-space'], req).satisfied).toBe(true);
+  });
+});
 
 describe('Home readiness engine', () => {
   it('marks VERTICAL_PULL home-ready when bar, strict pull-up, volume and time are satisfied', () => {
@@ -94,6 +140,72 @@ describe('Home readiness engine', () => {
     const result = evaluateMovementPatternReadiness(input).get('VERTICAL_PULL')!;
     expect(result.performanceReady).toBe(false);
     expect(result.blockers.some((b) => b.includes('consistent'))).toBe(true);
+  });
+
+  it('weighted pull-up readiness fails with only pull-up bar', () => {
+    const input = makeInput({
+      equipmentOwned: ['pull-up-bar'],
+      unlockStates: new Map([['weighted-pull-up', { nodeId: 'weighted-pull-up', status: 'unlocked', reason: '' }]]),
+      skillAttempts: [
+        makeAttempt('weighted-pull-up', { repetitions: 5, qualityScore: 0.8, externalLoadKg: 10 }),
+        makeAttempt('weighted-pull-up', { repetitions: 5, qualityScore: 0.8, externalLoadKg: 10 })
+      ],
+      weeklyVolumeByMuscle: {
+        lats: { muscleId: 'lats', directSets: 8, estimatedEffectiveSets: 8, staticExposureSeconds: 0, techniqueSets: 0, powerSets: 0 }
+      }
+    });
+    const result = evaluateMovementPatternReadiness(input).get('VERTICAL_PULL')!;
+    expect(result.equipmentReady).toBe(false);
+  });
+
+  it('weighted pull-up readiness passes with pull-up bar + dip belt + plates', () => {
+    const input = makeInput({
+      equipmentOwned: ['pull-up-bar', 'dip-belt', 'plates'],
+      unlockStates: new Map([['weighted-pull-up', { nodeId: 'weighted-pull-up', status: 'unlocked', reason: '' }]]),
+      skillAttempts: [
+        makeAttempt('weighted-pull-up', { repetitions: 5, qualityScore: 0.8, externalLoadKg: 10 }),
+        makeAttempt('weighted-pull-up', { repetitions: 5, qualityScore: 0.8, externalLoadKg: 10 })
+      ],
+      weeklyVolumeByMuscle: {
+        lats: { muscleId: 'lats', directSets: 8, estimatedEffectiveSets: 8, staticExposureSeconds: 0, techniqueSets: 0, powerSets: 0 }
+      }
+    });
+    const result = evaluateMovementPatternReadiness(input).get('VERTICAL_PULL')!;
+    expect(result.equipmentReady).toBe(true);
+    expect(result.performanceReady).toBe(true);
+  });
+
+  it('Nordic readiness passes with any one valid alternative', () => {
+    const input = makeInput({
+      equipmentOwned: ['sliders', 'exercise-mat'],
+      unlockStates: new Map([['sliding-hamstring-curl', { nodeId: 'sliding-hamstring-curl', status: 'unlocked', reason: '' }]]),
+      skillAttempts: [
+        makeAttempt('sliding-hamstring-curl', { repetitions: 8, qualityScore: 0.75 }),
+        makeAttempt('sliding-hamstring-curl', { repetitions: 8, qualityScore: 0.75 })
+      ],
+      weeklyVolumeByMuscle: {
+        hamstrings: { muscleId: 'hamstrings', directSets: 8, estimatedEffectiveSets: 8, staticExposureSeconds: 0, techniqueSets: 0, powerSets: 0 }
+      }
+    });
+    const result = evaluateMovementPatternReadiness(input).get('KNEE_FLEXION')!;
+    expect(result.equipmentReady).toBe(true);
+    expect(result.performanceReady).toBe(true);
+  });
+
+  it('weighted ring push-up fails without rings', () => {
+    const input = makeInput({
+      equipmentOwned: ['weight-vest'],
+      unlockStates: new Map([['weighted-ring-push-up', { nodeId: 'weighted-ring-push-up', status: 'unlocked', reason: '' }]]),
+      skillAttempts: [
+        makeAttempt('weighted-ring-push-up', { repetitions: 6, qualityScore: 0.8 }),
+        makeAttempt('weighted-ring-push-up', { repetitions: 6, qualityScore: 0.8 })
+      ],
+      weeklyVolumeByMuscle: {
+        chest: { muscleId: 'chest', directSets: 8, estimatedEffectiveSets: 8, staticExposureSeconds: 0, techniqueSets: 0, powerSets: 0 }
+      }
+    });
+    const result = evaluateMovementPatternReadiness(input).get('HORIZONTAL_PUSH')!;
+    expect(result.equipmentReady).toBe(false);
   });
 
   it('reports readiness percent based on all 12 patterns', () => {

@@ -12,6 +12,50 @@ export interface CoachMessage {
   tone: 'neutral' | 'positive' | 'warning' | 'action';
 }
 
+function explainExerciseState(state: string): string {
+  switch (state) {
+    case 'add_reps':
+      return 'You are progressing by adding reps within the target range before increasing load.';
+    case 'add_load':
+      return 'You hit the top of the rep range, so the next step is more weight.';
+    case 'reduce_load':
+      return 'Recent quality dropped or pain was reported; load is being reduced to recover form.';
+    case 'hold_safety':
+      return 'Progression is paused until pain clears or form stabilizes.';
+    case 'deload':
+      return 'You are in a deload week. Keep reps easy and do not chase records.';
+    case 'set_addition':
+      return 'Volume is being increased by adding a set before increasing intensity.';
+    default:
+      return 'Hold the current target and focus on clean execution.';
+  }
+}
+
+function explainSkillState(state: string): string {
+  switch (state) {
+    case 'add_rep':
+      return 'Add one rep while keeping quality high.';
+    case 'add_hold_time':
+      return 'Hold the position a little longer per set.';
+    case 'reduce_assistance':
+      return 'Use less assistance so the skill becomes more self-supported.';
+    case 'increase_leverage':
+      return 'Move to a harder leverage position.';
+    case 'add_load':
+      return 'Add external load now that the leverage is solid.';
+    case 'unlock_next':
+      return 'You have met the unlock criteria; the next progression is available.';
+    case 'regress':
+      return 'Move back to an easier variation to rebuild quality.';
+    case 'hold_safety':
+      return 'Hold this variation until the safety concern is resolved.';
+    case 'deload_skill':
+      return 'Reduce skill volume this week to recover.';
+    default:
+      return 'Maintain the current target and chase quality, not fatigue.';
+  }
+}
+
 export function buildCoachMessage(
   prescription: ExercisePrescriptionWithMeta | SkillPrescriptionWithMeta,
   decision?: ProgressionDecision
@@ -20,8 +64,9 @@ export function buildCoachMessage(
     const name = exerciseName(prescription.exercise_id);
     const load = prescription.currentLoad;
     const reps = `${prescription.targetRepRange.min}-${prescription.targetRepRange.max}`;
-    const decisionText = decision ? ` Last decision: ${decision.reason}` : '';
-    return `${name}: ${load} kg for ${reps} reps.${decisionText}`;
+    const explanation = explainExerciseState(prescription.progressionState);
+    const decisionText = decision ? ` Latest decision: ${decision.reason}` : '';
+    return `${name}: ${load} kg for ${reps} reps. ${explanation}${decisionText}`;
   }
 
   const name = nodeName(prescription.currentNode);
@@ -32,8 +77,9 @@ export function buildCoachMessage(
   const leverage = prescription.leverageLevel !== 'full' ? ` at ${prescription.leverageLevel} leverage` : '';
   const assistance = prescription.assistance !== 'none' ? ` with ${prescription.assistance} assistance` : '';
   const statusText = prescription.status ? ` (${prescription.status.replace(/_/g, ' ')})` : '';
-  const decisionText = decision ? ` Last decision: ${decision.reason}` : '';
-  return `${name}${statusText}: ${target}${leverage}${assistance}.${decisionText}`;
+  const explanation = explainSkillState(prescription.progressionState);
+  const decisionText = decision ? ` Latest decision: ${decision.reason}` : '';
+  return `${name}${statusText}: ${target}${leverage}${assistance}. ${explanation}${decisionText}`;
 }
 
 function exerciseName(exerciseId: string): string {

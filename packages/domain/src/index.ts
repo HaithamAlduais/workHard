@@ -12,6 +12,7 @@ export * from './replacement/integration.js';
 export * from './readiness/engine.js';
 export * from './graduation/engine.js';
 export * from './graduation/contracts.js';
+export * from './graduation/validation.js';
 export * from './time-budget/engine.js';
 export * from './deload/engine.js';
 export * from './set-addition/engine.js';

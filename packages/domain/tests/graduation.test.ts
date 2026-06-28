@@ -1,6 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { evaluateGraduation } from '../src/index.js';
-import type { GraduationContract, MovementPatternReadiness, SkillUnlockState, GraduationRequirement } from '../src/types.js';
+import {
+  evaluateGraduation,
+  createPracticalHomeContract,
+  createAdvancedCalisthenicsContract,
+  createEliteMasteryContract,
+  getSkillNode,
+  MOVEMENT_PATTERNS
+} from '../src/index.js';
+import type { GraduationContract, MovementPatternReadiness, SkillUnlockState } from '../src/types.js';
 
 function makeReadiness(pattern: string): MovementPatternReadiness {
   return {
@@ -10,9 +17,17 @@ function makeReadiness(pattern: string): MovementPatternReadiness {
     volumeReady: true,
     timeReady: true,
     painFree: true,
-    supportingExerciseOrSkill: `${pattern}-skill`
+    supportingExerciseOrSkill: `${pattern}-skill`,
+    blockers: [],
+    recommendation: `${pattern} is ready.`
   };
 }
+
+const CONTRACT_FACTORIES = [
+  { name: 'Practical Home', factory: createPracticalHomeContract },
+  { name: 'Advanced Calisthenics', factory: createAdvancedCalisthenicsContract },
+  { name: 'Elite Mastery', factory: createEliteMasteryContract }
+];
 
 describe('Graduation engine', () => {
   it('blocks graduation when movement pattern not home-ready', () => {
@@ -58,5 +73,35 @@ describe('Graduation engine', () => {
     expect(decision.fourWeekTransition).toBeDefined();
     expect(decision.fourWeekTransition!.week1.gymPercent).toBe(75);
     expect(decision.fourWeekTransition!.week4.homePercent).toBe(100);
+  });
+
+  it('validates every skill requirement in contract factories resolves to a real skill node', () => {
+    for (const { name, factory } of CONTRACT_FACTORIES) {
+      const contract = factory('local');
+      const skillRequirements = contract.requirements.filter(
+        (r) => r.type === 'SKILL_UNLOCKED' || r.type === 'SKILL_MASTERED'
+      );
+      expect(skillRequirements.length).toBeGreaterThan(0);
+      for (const req of skillRequirements) {
+        const node = getSkillNode(req.targetSkillNodeId!);
+        expect(node, `${name} references missing node ${req.targetSkillNodeId}`).toBeDefined();
+      }
+    }
+  });
+
+  it('validates every movement-pattern requirement in contract factories is known', () => {
+    for (const { name, factory } of CONTRACT_FACTORIES) {
+      const contract = factory('local');
+      const patternRequirements = contract.requirements.filter(
+        (r) => r.type === 'MOVEMENT_PATTERN_READY'
+      );
+      expect(patternRequirements.length).toBe(MOVEMENT_PATTERNS.length);
+      for (const req of patternRequirements) {
+        expect(
+          MOVEMENT_PATTERNS.includes(req.targetMovementPattern!),
+          `${name} references unknown pattern ${req.targetMovementPattern}`
+        ).toBe(true);
+      }
+    }
   });
 });

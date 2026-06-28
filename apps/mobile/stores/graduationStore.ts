@@ -9,6 +9,7 @@ export interface GraduationState {
   contract: GraduationContract | null;
   homeIndependenceMode: boolean;
   transitionWeek: number;
+  completedTemplates: GraduationTemplate[];
   // actions
   selectTemplate: (template: GraduationTemplate) => void;
   setContract: (contract: GraduationContract | null) => void;
@@ -16,6 +17,7 @@ export interface GraduationState {
   startTransition: () => void;
   advanceTransitionWeek: () => void;
   activateHomeIndependence: () => void;
+  markTemplateCompleted: (template: GraduationTemplate) => void;
   resetGraduation: () => void;
 }
 
@@ -27,6 +29,7 @@ export const useGraduationStore = create<GraduationState>()(
       contract: null,
       homeIndependenceMode: false,
       transitionWeek: 0,
+      completedTemplates: [],
 
       selectTemplate: (template) => {
         set({ selectedTemplate: template });
@@ -50,7 +53,15 @@ export const useGraduationStore = create<GraduationState>()(
       },
 
       activateHomeIndependence: () => {
-        set({ homeIndependenceMode: true, transitionWeek: 4 });
+        const completed = new Set(get().completedTemplates);
+        completed.add('PRACTICAL_HOME_INDEPENDENCE');
+        set({ homeIndependenceMode: true, transitionWeek: 4, completedTemplates: Array.from(completed) });
+      },
+
+      markTemplateCompleted: (template) => {
+        const completed = new Set(get().completedTemplates);
+        completed.add(template);
+        set({ completedTemplates: Array.from(completed) });
       },
 
       resetGraduation: () => {
@@ -59,7 +70,8 @@ export const useGraduationStore = create<GraduationState>()(
           customRequirements: [],
           contract: null,
           homeIndependenceMode: false,
-          transitionWeek: 0
+          transitionWeek: 0,
+          completedTemplates: []
         });
       }
     }),

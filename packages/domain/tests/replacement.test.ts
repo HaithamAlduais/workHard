@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { decideReplacement } from '../src/index.js';
-import type { Exercise, SkillNode, SkillAttempt } from '../src/types.js';
+import {
+  decideReplacement,
+  applyReplacementToDay,
+  getExerciseById,
+  getHybridProgramDay
+} from '../src/index.js';
+import type { Exercise, SkillNode, SkillAttempt, SkillUnlockState, SkillPriority } from '../src/types.js';
 
 const pulldown: Exercise = {
   id: 'pulldown',
@@ -124,5 +129,59 @@ describe('Replacement engine', () => {
     });
     expect(decision.allowed).toBe(true);
     expect(decision.percentage).toBe(100);
+  });
+
+  it('splits sets correctly for partial replacement', () => {
+    const day = getHybridProgramDay('day3', {
+      priority: {
+        primarySkillFamilyId: 'tuck-front-lever',
+        secondarySkillFamilyIds: ['l-sit'],
+        maintenanceSkillFamilyIds: [],
+        inactiveSkillFamilyIds: [],
+        goalTemplate: 'advanced_calisthenics',
+        blockStart: null,
+        blockEnd: null,
+        blockLengthWeeks: 12
+      } as SkillPriority,
+      skillPrescriptions: {},
+      unlockStates: new Map<string, SkillUnlockState>(),
+      startingNodes: {},
+      availableMinutes: 90
+    }).day;
+
+    const decision = {
+      allowed: true,
+      percentage: 50 as const,
+      reason: 'Trial replacement',
+      conditions: []
+    };
+
+    const pulldownSpec = day.exercises.find((e) => e.exerciseId === 'lat-pulldown');
+    expect(pulldownSpec).toBeDefined();
+
+    const replaced = applyReplacementToDay(day, new Map([
+      ['lat-pulldown', { decision, calisthenicsNode: weightedPullUpNode }]
+    ]));
+
+    const gymEx = replaced.exercises.find((e) => e.exerciseId === 'lat-pulldown');
+    const homeEx = replaced.exercises.find((e) => e.exerciseId === 'weighted-pull-up');
+    expect(gymEx).toBeDefined();
+    expect(homeEx).toBeDefined();
+    expect(gymEx!.targetSets + homeEx!.targetSets).toBe(pulldownSpec!.targetSets);
+  });
+
+  it('does not replace power exercises', () => {
+    const boxJump = getExerciseById('box-jump')!;
+    const decision = decideReplacement({
+      userId: 'u',
+      gymExercise: boxJump,
+      calisthenicsNode: weightedPullUpNode,
+      currentSkillAttempts: Array.from({ length: 6 }, () => makeAttempt(5)),
+      equipmentAvailable: ['bar', 'dip-belt', 'plates'],
+      weeklyVolumeForMuscle: { muscleId: 'quadriceps', directSets: 10, estimatedEffectiveSets: 0, staticExposureSeconds: 0, techniqueSets: 0, powerSets: 0 },
+      sessionTimeMinutes: 45,
+      painFree: true
+    });
+    expect(decision.allowed).toBe(false);
   });
 });

@@ -18,7 +18,7 @@ export interface ReadinessInput {
   sessionTimeMinutes: number;
 }
 
-const MOVEMENT_PATTERNS: MovementPattern[] = [
+export const MOVEMENT_PATTERNS: MovementPattern[] = [
   'VERTICAL_PUSH',
   'VERTICAL_PULL',
   'HORIZONTAL_PUSH',
@@ -37,8 +37,47 @@ const VOLUME_THRESHOLD = 6;
 const SESSION_TIME_LIMIT = 55;
 const RECENT_DAYS = 30;
 
+export interface EquipmentRequirement {
+  /** Every listed item must be owned. */
+  allOf?: string[];
+  /** At least one listed item must be owned. */
+  anyOf?: string[];
+  /** At least one nested requirement must be satisfied (grouped alternatives). */
+  groups?: EquipmentRequirement[];
+}
+
+export function evaluateEquipmentRequirement(
+  owned: string[],
+  requirement: EquipmentRequirement
+): { satisfied: boolean; missing: string[] } {
+  const missing: string[] = [];
+
+  if (requirement.allOf && requirement.allOf.length > 0) {
+    const notOwned = requirement.allOf.filter((item) => !owned.includes(item));
+    if (notOwned.length > 0) {
+      missing.push(`all of ${notOwned.join(', ')}`);
+    }
+  }
+
+  if (requirement.anyOf && requirement.anyOf.length > 0) {
+    if (!requirement.anyOf.some((item) => owned.includes(item))) {
+      missing.push(`one of ${requirement.anyOf.join(', ')}`);
+    }
+  }
+
+  if (requirement.groups && requirement.groups.length > 0) {
+    const groupResults = requirement.groups.map((group) => evaluateEquipmentRequirement(owned, group));
+    if (!groupResults.some((g) => g.satisfied)) {
+      const groupMissing = groupResults.map((g) => g.missing.join(' and ')).filter(Boolean);
+      missing.push(`(${groupMissing.join(') or (')})`);
+    }
+  }
+
+  return { satisfied: missing.length === 0, missing };
+}
+
 interface PatternRule {
-  requiredEquipment: string[];
+  equipment: EquipmentRequirement;
   volumeMuscle: string;
   anchorFamilies?: string[];
   anchorNodes?: string[];
@@ -48,71 +87,84 @@ interface PatternRule {
 
 const PATTERN_RULES: Record<MovementPattern, PatternRule> = {
   VERTICAL_PULL: {
-    requiredEquipment: ['pull-up-bar'],
+    equipment: {
+      groups: [
+        { allOf: ['pull-up-bar'] },
+        { allOf: ['pull-up-bar', 'dip-belt', 'plates'] },
+        { allOf: ['pull-up-bar', 'weight-vest'] }
+      ]
+    },
     volumeMuscle: 'lats',
     anchorFamilies: ['pull-up'],
     performanceNodeMinStage: 6 // strict-pull-up and beyond
   },
   VERTICAL_PUSH: {
-    requiredEquipment: ['wall'],
+    equipment: { groups: [{ allOf: ['wall'] }, { allOf: ['parallettes'] }] },
     volumeMuscle: 'anterior-deltoids',
     anchorFamilies: ['handstand'],
     performanceNodeMinStage: 5 // wall-hspu and beyond
   },
   HORIZONTAL_PUSH: {
-    requiredEquipment: ['rings'],
+    equipment: {
+      groups: [
+        { allOf: ['rings'] },
+        { allOf: ['rings', 'weight-vest'] },
+        { allOf: ['rings', 'backpack'] },
+        { allOf: ['rings', 'plates'] }
+      ]
+    },
     volumeMuscle: 'chest',
     anchorFamilies: ['ring-push-up', 'planche'],
     performanceNodeMinStage: 4 // ring-push-up and beyond
   },
   HORIZONTAL_PULL: {
-    requiredEquipment: ['pull-up-bar'],
+    equipment: { groups: [{ allOf: ['pull-up-bar'] }, { allOf: ['rings'] }] },
     volumeMuscle: 'upper-back',
     anchorFamilies: ['front-lever'],
-    performanceNodeMinStage: 1 // tuck-front-lever and beyond; dynamic rows come later
+    performanceNodeMinStage: 1 // tuck-front-lever and beyond
   },
   KNEE_DOMINANT: {
-    requiredEquipment: ['box'],
+    equipment: { anyOf: ['box', 'bench', 'step'] },
     volumeMuscle: 'quadriceps',
     anchorFamilies: ['pistol'],
     performanceNodeMinStage: 4 // box-pistol and beyond
   },
   KNEE_FLEXION: {
-    requiredEquipment: ['nordic-anchor', 'sliders', 'rings'], // any one of these
+    equipment: { anyOf: ['nordic-anchor', 'sliders', 'rings'] },
     volumeMuscle: 'hamstrings',
     anchorFamilies: ['knee-flexion'],
-    performanceNodeMinStage: 2 // ring-hamstring-curl and beyond
+    performanceNodeMinStage: 1 // sliding-hamstring-curl and beyond
   },
   HIP_HINGE: {
     // No dedicated calisthenics hip-hinge progression. Home-ready if a loadable
     // implement exists and the user has RDL/deadlift volume.
-    requiredEquipment: ['barbell', 'dumbbells', 'plates', 'backpack'],
+    equipment: { anyOf: ['barbell', 'dumbbells', 'plates', 'backpack', 'kettlebell'] },
     volumeMuscle: 'hamstrings',
     anchorExercises: ['romanian-deadlift', 'trap-bar-deadlift']
   },
   CALF: {
-    requiredEquipment: ['box'],
+    equipment: { anyOf: ['box', 'bench', 'step'] },
     volumeMuscle: 'calves',
     anchorExercises: ['single-leg-calf-raise']
   },
   CORE_COMPRESSION: {
-    requiredEquipment: ['exercise-mat'],
+    equipment: { anyOf: ['exercise-mat', 'parallettes', 'floor-space'] },
     volumeMuscle: 'trunk',
     anchorFamilies: ['l-sit'],
     performanceNodeMinStage: 3 // one-leg-l-sit and beyond
   },
   GRIP: {
-    requiredEquipment: ['pull-up-bar', 'plates', 'dumbbells'],
+    equipment: { anyOf: ['pull-up-bar', 'plates', 'dumbbells'] },
     volumeMuscle: 'grip',
     anchorExercises: ['towel-dead-hang', 'plate-pinch', 'farmers-carry']
   },
   UPPER_BODY_POWER: {
-    requiredEquipment: ['medicine-ball', 'park'],
+    equipment: { anyOf: ['medicine-ball', 'park', 'open-space'] },
     volumeMuscle: 'chest',
     anchorExercises: ['medicine-ball-throw']
   },
   LOWER_BODY_POWER: {
-    requiredEquipment: ['box', 'park'],
+    equipment: { anyOf: ['box', 'park', 'open-space'] },
     volumeMuscle: 'quadriceps',
     anchorExercises: ['box-jump', 'trap-bar-jump']
   }
@@ -120,13 +172,7 @@ const PATTERN_RULES: Record<MovementPattern, PatternRule> = {
 
 function hasEquipment(owned: string[], required: string[]): boolean {
   if (required.length === 0) return true;
-  return required.some((item) => owned.includes(item));
-}
-
-function missingEquipment(owned: string[], required: string[]): string[] {
-  if (required.length === 0) return [];
-  if (required.some((item) => owned.includes(item))) return [];
-  return required;
+  return required.every((item) => owned.includes(item));
 }
 
 function isRecent(date: Date): boolean {
@@ -147,10 +193,14 @@ function countQualityAttempts(node: SkillNode, attempts: SkillAttempt[]): number
   }).length;
 }
 
-function findSkillAnchor(
-  rule: PatternRule,
-  input: ReadinessInput
-): { nodeId: string; name: string; ready: boolean } | undefined {
+interface SkillAnchor {
+  nodeId: string;
+  name: string;
+  ready: boolean;
+  equipmentSatisfied: boolean;
+}
+
+function findSkillAnchors(rule: PatternRule, input: ReadinessInput): SkillAnchor[] {
   const owned = input.equipmentOwned;
   const nodes: SkillNode[] = [];
 
@@ -167,54 +217,69 @@ function findSkillAnchor(
   }
 
   const minStage = rule.performanceNodeMinStage ?? 1;
+  const anchors: SkillAnchor[] = [];
 
   for (const node of nodes) {
     if (node.stage < minStage) continue;
     const state = input.unlockStates.get(node.id);
     const unlocked = state?.status === 'unlocked' || state?.status === 'mastered';
     if (!unlocked) continue;
-    if (!hasEquipment(owned, node.apparatus)) continue;
+    const equipmentSatisfied = hasEquipment(owned, node.apparatus);
     const qualityCount = countQualityAttempts(node, input.skillAttempts);
-    if (qualityCount >= 2) {
-      return { nodeId: node.id, name: node.name, ready: true };
-    }
+    anchors.push({ nodeId: node.id, name: node.name, ready: equipmentSatisfied && qualityCount >= 2, equipmentSatisfied });
   }
 
-  for (const node of nodes) {
-    if (node.stage < minStage) continue;
-    const state = input.unlockStates.get(node.id);
-    if (state?.status === 'unlocked' || state?.status === 'mastered') {
-      return { nodeId: node.id, name: node.name, ready: false };
-    }
-  }
-
-  return undefined;
+  return anchors;
 }
 
-function findExerciseAnchor(
-  rule: PatternRule,
-  input: ReadinessInput
-): { exerciseId: string; name: string; ready: boolean } | undefined {
+function findSkillAnchor(rule: PatternRule, input: ReadinessInput): SkillAnchor | undefined {
+  const anchors = findSkillAnchors(rule, input);
+  return anchors.find((a) => a.ready) ?? anchors[0];
+}
+
+interface ExerciseAnchor {
+  exerciseId: string;
+  name: string;
+  ready: boolean;
+  equipmentSatisfied: boolean;
+}
+
+function findExerciseAnchors(rule: PatternRule, input: ReadinessInput): ExerciseAnchor[] {
   const owned = input.equipmentOwned;
+  const anchors: ExerciseAnchor[] = [];
   for (const id of rule.anchorExercises ?? []) {
     const ex = getExerciseById(id);
     if (!ex) continue;
-    if (!hasEquipment(owned, ex.equipmentIds)) continue;
+    const equipmentSatisfied = hasEquipment(owned, ex.equipmentIds);
     const volume = input.weeklyVolumeByMuscle[ex.primaryMuscleIds[0] ?? 'unknown'];
     const hasVolume = (volume?.directSets ?? 0) >= VOLUME_THRESHOLD;
-    return { exerciseId: id, name: ex.name, ready: hasVolume };
+    anchors.push({ exerciseId: id, name: ex.name, ready: equipmentSatisfied && hasVolume, equipmentSatisfied });
   }
-  return undefined;
+  return anchors;
+}
+
+function findExerciseAnchor(rule: PatternRule, input: ReadinessInput): ExerciseAnchor | undefined {
+  const anchors = findExerciseAnchors(rule, input);
+  return anchors.find((a) => a.ready) ?? anchors[0];
 }
 
 function evaluatePattern(pattern: MovementPattern, input: ReadinessInput): MovementPatternReadiness {
   const rule = PATTERN_RULES[pattern];
   const blockers: string[] = [];
 
-  const equipmentMissing = missingEquipment(input.equipmentOwned, rule.requiredEquipment);
-  const equipmentReady = equipmentMissing.length === 0;
+  const skillAnchors = findSkillAnchors(rule, input);
+  const exerciseAnchors = findExerciseAnchors(rule, input);
+  const hasEquippedSkillAnchor = skillAnchors.some((a) => a.equipmentSatisfied);
+  const hasEquippedExerciseAnchor = exerciseAnchors.some((a) => a.equipmentSatisfied);
+  const equipmentReady = hasEquippedSkillAnchor || hasEquippedExerciseAnchor;
+
   if (!equipmentReady) {
-    blockers.push(`Missing equipment: ${equipmentMissing.join(' or ')}`);
+    const equipmentEval = evaluateEquipmentRequirement(input.equipmentOwned, rule.equipment);
+    if (!equipmentEval.satisfied) {
+      blockers.push(`Missing equipment: ${equipmentEval.missing.join('; ')}`);
+    } else {
+      blockers.push('No unlocked anchor has the required equipment available.');
+    }
   }
 
   const skillAnchor = findSkillAnchor(rule, input);
@@ -300,13 +365,12 @@ export function getTopBlockers(
   readiness: Map<string, MovementPatternReadiness>,
   limit = 3
 ): string[] {
-  const all: string[] = [];
+  const blockers: string[] = [];
   for (const r of readiness.values()) {
-    if (!r.equipmentReady || !r.performanceReady || !r.volumeReady || !r.timeReady || !r.painFree) {
-      for (const b of r.blockers) {
-        all.push(`${r.pattern}: ${b}`);
-      }
+    if (r.blockers.length > 0) {
+      blockers.push(`${r.pattern}: ${r.blockers[0]}`);
     }
+    if (blockers.length >= limit) break;
   }
-  return all.slice(0, limit);
+  return blockers.slice(0, limit);
 }

@@ -44,7 +44,9 @@ export interface ReplacementRecord {
   percentage: number;
   reason: string;
   approvedAt: string;
-  status: 'active' | 'rejected' | 'superseded';
+  status: 'active' | 'rejected' | 'superseded' | 'deferred';
+  rejectedAt?: string;
+  deferredAt?: string;
 }
 
 interface PrescriptionState {
@@ -68,7 +70,10 @@ interface PrescriptionState {
   recomputeSkillStatuses: () => void;
   approveReplacement: (record: ReplacementRecord) => void;
   rejectReplacement: (exerciseId: string) => void;
+  deferReplacement: (exerciseId: string) => void;
   supersedeReplacement: (exerciseId: string) => void;
+  getActiveReplacement: (exerciseId: string) => ReplacementRecord | undefined;
+  isOnCooldown: (exerciseId: string, cooldownDays?: number) => boolean;
 }
 
 const GYM_DECISION_TYPES = new Set(['ADD_REPS', 'ADD_LOAD', 'REDUCE_LOAD', 'MAINTAIN_LOAD', 'HOLD_FOR_SAFETY']);
@@ -396,8 +401,34 @@ export const usePrescriptionStore = create<PrescriptionState>()(
       rejectReplacement: (exerciseId) => {
         set((state) => {
           const activeReplacements = { ...state.activeReplacements };
+          const previous = activeReplacements[exerciseId];
           delete activeReplacements[exerciseId];
-          return { ...state, activeReplacements };
+          const replacementHistory = [...state.replacementHistory];
+          if (previous) {
+            replacementHistory.push({
+              ...previous,
+              status: 'rejected',
+              rejectedAt: new Date().toISOString()
+            });
+          }
+          return { ...state, activeReplacements, replacementHistory };
+        });
+      },
+
+      deferReplacement: (exerciseId) => {
+        set((state) => {
+          const activeReplacements = { ...state.activeReplacements };
+          const previous = activeReplacements[exerciseId];
+          delete activeReplacements[exerciseId];
+          const replacementHistory = [...state.replacementHistory];
+          if (previous) {
+            replacementHistory.push({
+              ...previous,
+              status: 'deferred',
+              deferredAt: new Date().toISOString()
+            });
+          }
+          return { ...state, activeReplacements, replacementHistory };
         });
       },
 
@@ -414,6 +445,21 @@ export const usePrescriptionStore = create<PrescriptionState>()(
           }
           return { ...state, activeReplacements, replacementHistory };
         });
+      },
+
+      getActiveReplacement: (exerciseId) => {
+        return get().activeReplacements[exerciseId];
+      },
+
+      isOnCooldown: (exerciseId, cooldownDays = 7) => {
+        const cutoff = Date.now() - cooldownDays * 24 * 60 * 60 * 1000;
+        return get().replacementHistory.some(
+          (r) =>
+            r.exerciseId === exerciseId &&
+            r.status === 'rejected' &&
+            r.rejectedAt !== undefined &&
+            new Date(r.rejectedAt).getTime() >= cutoff
+        );
       },
 
       applyPrescriptionsToWorkout: (workout) => {
@@ -447,7 +493,11 @@ export const usePrescriptionStore = create<PrescriptionState>()(
 
             const updated: WorkoutExercise = { ...ex };
             updated.targetLoadKg = prescription.currentLoad;
-            updated.targetSets = prescription.setCount;
+            let setCount = prescription.setCount;
+            if (ex.replacementPercentage !== undefined && ex.replacementPercentage > 0 && ex.replacementPercentage < 100) {
+              setCount = Math.max(1, Math.round(setCount * (100 - ex.replacementPercentage) / 100));
+            }
+            updated.targetSets = setCount;
 
             if (ex.targetHoldSeconds !== undefined) {
               updated.targetHoldSeconds = prescription.targetRepsOrHoldSeconds ?? ex.targetHoldSeconds;

@@ -44,6 +44,8 @@ export interface WorkoutExercise {
   targetLoadKg?: number;
   targetHoldSeconds?: number;
   restSeconds: number;
+  replacementPercentage?: number;
+  isReplacement?: boolean;
 }
 
 export interface WorkoutBlock {

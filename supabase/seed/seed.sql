@@ -263,7 +263,7 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Day 2 exercises
 INSERT INTO program_exercises (id, program_day_id, exercise_id, skill_node_id, order_index, pair_id, pair_type, sets, reps_min, reps_max, hold_seconds_min, hold_seconds_max, rest_seconds, rir_target, order_class, role, tier) VALUES
-('550e8400-e29b-41d4-a716-446655440020', '550e8400-e29b-41d4-a716-446655440002', null, 'muscle-up', null, 1, null, 4, 1, 3, null, null, 90, null, 'STRENGTH_SKILL', 'skill', 1),
+('550e8400-e29b-41d4-a716-446655440020', '550e8400-e29b-41d4-a716-446655440002', null, 'muscle-up', 1, null, null, 4, 1, 3, null, null, 90, null, 'STRENGTH_SKILL', 'skill', 1),
 ('550e8400-e29b-41d4-a716-446655440021', '550e8400-e29b-41d4-a716-446655440002', 'medicine-ball-throw', null, 2, null, null, 3, 4, 4, null, null, 75, null, 'POWER', 'power', 2),
 ('550e8400-e29b-41d4-a716-446655440022', '550e8400-e29b-41d4-a716-446655440002', 'trap-bar-deadlift', null, 3, null, null, 3, 3, 5, null, null, 240, 2, 'GYM_STRENGTH', 'strength', 2),
 ('550e8400-e29b-41d4-a716-446655440023', '550e8400-e29b-41d4-a716-446655440002', 'overhead-press', null, 4, 'B', 'ALT', 3, 4, 6, null, null, 90, 2, 'GYM_STRENGTH', 'strength', 3),
@@ -277,8 +277,8 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Day 3 exercises
 INSERT INTO program_exercises (id, program_day_id, exercise_id, skill_node_id, order_index, pair_id, pair_type, sets, reps_min, reps_max, hold_seconds_min, hold_seconds_max, rest_seconds, rir_target, order_class, role, tier) VALUES
-('550e8400-e29b-41d4-a716-446655440030', '550e8400-e29b-41d4-a716-446655440003', null, 'tuck-front-lever', null, 1, null, 4, null, null, 6, 10, 60, null, 'STRENGTH_SKILL', 'skill', 1),
-('550e8400-e29b-41d4-a716-446655440031', '550e8400-e29b-41d4-a716-446655440003', null, 'l-sit', null, 2, null, 3, null, null, 10, 20, 45, null, 'STRENGTH_SKILL', 'skill', 1),
+('550e8400-e29b-41d4-a716-446655440030', '550e8400-e29b-41d4-a716-446655440003', null, 'tuck-front-lever', 1, null, null, 4, null, null, 6, 10, 60, null, 'STRENGTH_SKILL', 'skill', 1),
+('550e8400-e29b-41d4-a716-446655440031', '550e8400-e29b-41d4-a716-446655440003', null, 'l-sit', 2, null, null, 3, null, null, 10, 20, 45, null, 'STRENGTH_SKILL', 'skill', 1),
 ('550e8400-e29b-41d4-a716-446655440032', '550e8400-e29b-41d4-a716-446655440003', 'trap-bar-jump', null, 3, null, null, 3, 3, 3, null, null, 105, null, 'POWER', 'power', 2),
 ('550e8400-e29b-41d4-a716-446655440033', '550e8400-e29b-41d4-a716-446655440003', 'front-squat', null, 4, null, null, 3, 4, 6, null, null, 180, 2, 'GYM_STRENGTH', 'strength', 2),
 ('550e8400-e29b-41d4-a716-446655440034', '550e8400-e29b-41d4-a716-446655440003', 'low-incline-press', null, 5, 'B', 'ALT', 3, 4, 6, null, null, 90, 2, 'GYM_STRENGTH', 'strength', 3),

@@ -450,7 +450,7 @@ CREATE POLICY "Users can manage own equipment" ON equipment_inventory USING (aut
 CREATE POLICY "Users can manage own schedule" ON schedule_preferences USING (auth.uid() = user_id);
 CREATE POLICY "Users can manage own sessions" ON workout_sessions USING (auth.uid() = user_id);
 CREATE POLICY "Users can manage own session exercises" ON session_exercises USING (auth.uid() IN (SELECT user_id FROM workout_sessions WHERE workout_sessions.id = session_exercises.workout_session_id));
-CREATE POLICY "Users can manage own set logs" ON set_logs USING (auth.uid() IN (SELECT user_id FROM workout_sessions WHERE workout_sessions.id = set_logs.session_exercise_id));
+CREATE POLICY "Users can manage own set logs" ON set_logs USING (auth.uid() IN (SELECT ws.user_id FROM workout_sessions ws JOIN session_exercises se ON ws.id = se.workout_session_id WHERE se.id = set_logs.session_exercise_id));
 CREATE POLICY "Users can manage own skill attempts" ON skill_attempts USING (auth.uid() = user_id);
 CREATE POLICY "Users can manage own skill unlocks" ON skill_unlocks USING (auth.uid() = user_id);
 CREATE POLICY "Users can manage own skill goals" ON skill_goals USING (auth.uid() = user_id);

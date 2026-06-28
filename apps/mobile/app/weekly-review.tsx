@@ -30,7 +30,9 @@ export default function WeeklyReviewScreen() {
     skillPrescriptions,
     approveReplacement,
     rejectReplacement,
-    activeReplacements
+    deferReplacement,
+    activeReplacements,
+    isOnCooldown
   } = usePrescriptionStore();
   const priority = useSkillPriorityStore();
   const skillAttempts = useSkillStore((s) => s.attempts);
@@ -170,13 +172,16 @@ export default function WeeklyReviewScreen() {
 
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
           <Text style={[styles.cardTitle, { color: c.text }]}>Replacement Candidates</Text>
-          {replacementCandidates.decisions.size === 0 ? (
-            <Text style={[styles.cardBody, { color: c.textMuted }]}>No replacement candidates this week.</Text>
-          ) : (
-            Array.from(replacementCandidates.decisions.entries()).map(([exerciseId, result]) => {
+          {(() => {
+            const visible = Array.from(replacementCandidates.decisions.entries()).filter(
+              ([exerciseId]) => !isOnCooldown(exerciseId) && !dismissed.has(exerciseId)
+            );
+            if (visible.length === 0) {
+              return <Text style={[styles.cardBody, { color: c.textMuted }]}>No replacement candidates this week.</Text>;
+            }
+            return visible.map(([exerciseId, result]) => {
               const active = activeReplacements[exerciseId];
               const approved = active?.status === 'active' && active.percentage === result.decision.percentage;
-              const rejected = dismissed.has(exerciseId) || (active && !approved);
               return (
                 <View key={exerciseId} style={styles.candidateRow}>
                   <Text style={[styles.cardBody, { color: c.text }]}>
@@ -188,7 +193,18 @@ export default function WeeklyReviewScreen() {
                   <Text style={{ color: c.textMuted, fontSize: 12, marginTop: 2 }}>
                     {result.decision.reason}
                   </Text>
-                  {!approved && !rejected && (
+                  {approved ? (
+                    <View style={styles.buttonRow}>
+                      <Text style={{ color: c.success, fontSize: 13, marginTop: 4 }}>Approved</Text>
+                      <Pressable
+                        testID={`reverse-replacement-${exerciseId}`}
+                        style={[styles.smallButton, { backgroundColor: c.warning }]}
+                        onPress={() => rejectReplacement(exerciseId)}
+                      >
+                        <Text style={styles.smallButtonText}>Reverse</Text>
+                      </Pressable>
+                    </View>
+                  ) : (
                     <View style={styles.buttonRow}>
                       <Pressable
                         testID={`approve-replacement-${exerciseId}`}
@@ -218,18 +234,22 @@ export default function WeeklyReviewScreen() {
                       >
                         <Text style={styles.smallButtonText}>Reject</Text>
                       </Pressable>
+                      <Pressable
+                        testID={`defer-replacement-${exerciseId}`}
+                        style={[styles.smallButton, { backgroundColor: c.border }]}
+                        onPress={() => {
+                          deferReplacement(exerciseId);
+                          setDismissed((prev) => new Set(prev).add(exerciseId));
+                        }}
+                      >
+                        <Text style={[styles.smallButtonText, { color: c.text }]}>Defer</Text>
+                      </Pressable>
                     </View>
-                  )}
-                  {approved && (
-                    <Text style={{ color: c.success, fontSize: 13, marginTop: 4 }}>Approved</Text>
-                  )}
-                  {rejected && (
-                    <Text style={{ color: c.textMuted, fontSize: 13, marginTop: 4 }}>Rejected</Text>
                   )}
                 </View>
               );
-            })
-          )}
+            });
+          })()}
         </View>
 
         <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
